@@ -332,6 +332,15 @@ class TcpInternal {
   
   TcpManager *manager_;
   
+  uint32_t peer_initial_seq_; // HeaderCheckUpdate
+  uint32_t peer_last_ack_; // HeaderCheckUpdate
+  uint32_t peer_window_; // HeaderCheckUpdate
+  
+  uint32_t host_initial_seq_ = 10; // none
+  uint32_t host_next_seq_ = host_initial_seq_+1; // GetPackagesForSending
+  uint32_t host_last_ack_; // EstabUpdateState
+  uint32_t host_window_ = 4096; // none
+  
   uint16_t host_port_;
   uint16_t peer_port_;
   
