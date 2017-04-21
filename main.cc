@@ -1,14 +1,15 @@
 
 
-#include "debug/debug-tcp.h"
 
 #include <vector>
-
 #include <stdio.h>
 
-int main() {
-  DebugTcp x;
-  x.Run(); 
+#include "tcp.h"
 
+int main() {
+  TcpInternal internal1(0, nullptr, 50, 100);
+  TcpInternal internal2(0, nullptr, 100, 50);
+
+  
   return 0;
 }

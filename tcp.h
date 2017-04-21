@@ -13,62 +13,20 @@
 class TcpSocket;
 class TcpManager;
 
-template <class Fn>
-void MakeFunctionVectorImpl(std::vector<std::function<int(int)> > &vtr,
-  Fn &&fn) {
-  vtr.emplace_back(static_cast<std::function<int(int)> >(fn));
-}
-
-template <class Fn, class... Fns>
-void MakeFunctionVectorImpl(std::vector<std::function<int(int)> > &vtr,
-                            Fn &&fn, Fns&&... fns) {
-  vtr.emplace_back(static_cast<std::function<int(int)> >(fn));
-}
-
-template <class... Fns>
-std::vector<std::function<int(int)> > MakeFunctionVector(Fns&&... fns) {
-  std::vector<std::function<int(int)> > result;
-  MakeFunctionVectorImpl(result, std::forward<Fns>(fns)...);
-  return result;
-}
-
-class TcpInternal {
+class TcpInternal : public TcpInternalInterface {
  public:
   friend struct DebugTcp;
   
   TcpInternal(uint64_t id, TcpManager *manager, uint16_t host_port,
               uint16_t peer_port)
-      : id_(id), manager_(manager), host_port_(host_port),
-        peer_port_(peer_port) {
-    actions_ = MakeFunctionVector(
-        [this](int){return 0;},                 // kNone = 0,
-        [this](int){SendSyn(); return 0;},      // kSendSyn,
-        [this](int size) {
-          if (size > 0)
-            SendAck();
-          return 0;
-        },      // kSendAck,
-        [this](int){SendSynAck(); return 0;},   // kSendSynAck,
-        [this](int){return 0;},                 // kClose,
-        [this](int){return 0;},                 // kWaitAck,
-        [this](int){return 0;}                  // kWaitFin
-    );
-    
-  }
+      : id_(id), state_(this), manager_(manager), host_port_(host_port),
+        peer_port_(peer_port) {}
   
   TcpInternal(const TcpInternal &) = delete;
   TcpInternal(TcpInternal &&) = default;
   
   TcpInternal &operator=(const TcpInternal &) = delete;
   TcpInternal &operator=(TcpInternal &&) = delete;
-  
-  int Listen() {
-    return 0;
-  }
-  
-  void OnConnect() {
-    
-  }
   
   int CloseInternal();  
   TcpSocket AcceptConnection();
@@ -78,251 +36,157 @@ class TcpInternal {
   }
   
   std::list<std::shared_ptr<NetworkPackage> > GetPackagesForSending() {
-    return buffer_.GetWritePackages(
-        peer_window_ - (host_next_seq_ - peer_last_ack_),
-        [this](TcpPackage &pack) mutable {
-          PreprePackageForSending(pack);
-        });
+    std::list<std::shared_ptr<NetworkPackage> > result;
+    for (;;) {
+      auto package = buffer_.GetFrontWritePackage();
+      if (package == nullptr)
+        break;
+      
+      auto sequence_number = state_.GetSequenceNumber(package->Length());
+      if (sequence_number.second == false)
+        break;
+      package->GetHeader().SequenceNumber() = sequence_number.first;
+      
+      state_.PrepareDataHeader(package->GetHeader(), package->Length());
+      package->GetHeader().Checksum() = 0;
+      package->GetHeader().Checksum() = package->CalculateChecksum();
+      result.emplace_back(static_cast<std::shared_ptr<NetworkPackage> >(
+          *package));
+      buffer_.MoveFrontWriteToUnack();
+    }
+    
+    return result;
   }
   
   std::list<std::shared_ptr<NetworkPackage> > GetPackagesForResending() {
     return buffer_.GetPackagesForResending(
-        [this](TcpPackage &pack) mutable {
-          PreprePackageForSending(pack);
+        [this](TcpPackage &package) {
+          state_.PrepareResendHeader(package.GetHeader());
+          package.GetHeader().Checksum() = 0;
+          package.GetHeader().Checksum() = package.CalculateChecksum();
         });
   }
   
   int AddPackageForSending(TcpPackage package) {
+    package.GetHeader().SourcePort() = host_port_;
+    package.GetHeader().DestinationPort() = peer_port_;
     buffer_.AddToWriteBuffer(std::move(package));
     return 0;
   }
   
-  int ReceivePackage(TcpPackage package) {
+  void ReceivePackage(TcpPackage package) {
     assert(state_ != Stage::kClosed);
+    current_package_ = std::move(package);
+    auto size = current_package_.Length();
     
-    if (!package.ValidByChecksum())
-      return -1000;
-
-    auto check_result = HeaderCheckUpdate(package);
-    if (check_result == 1) // NewConnection
-      return 1;
-    if (check_result == 2) // RstRecv
-      return 2;
-    else if (check_result) {
-      SendAck();
-      return check_result; // Discard
+    state_.OnReceivePackage(&current_package_.GetHeader(), size);
+    while (!unsequenced_packages_.empty()) {
+      auto ite = unsequenced_packages_.begin();
+      auto &package = ite->second;
+      if (!state_.OnSequencePackage(package.GetHeader(), package.Length()))
+        break;
+      buffer_.AddToReadBuffer(std::move(package));
+      unsequenced_packages_.erase(ite);
     }
-    
-    buffer_.Ack(package.GetHeader().SequenceNumber());
-    auto event = package.GetHeader().ParseEvent();
-    auto package_size = package.Length();
-    if (state_ == Stage::kEstab) {
-      unsequenced_packages_.emplace(package.GetHeader().SequenceNumber(),
-                                    std::move(package));
-      EstabUpdateState();
-    }
-
-    std::cerr << __func__ << ": unseq_packsSize:" << unsequenced_packages_.size() << std::endl;
-    
-    auto action = state_.OnEvent(event);
-    std::cerr << __func__ << ": state_.OnEvent() result : " << action << std::endl;
-    
-    std::cerr << __func__ << ": action int: " << static_cast<int>(action) << std::endl;
-    return actions_.at(static_cast<int>(action))(package_size);
-
-    throw std::runtime_error("TcpInternal::ReceivedPackage error");
   }
   
   auto Id() const {
     return id_;
   }
   
+  void Listen() {
+    auto result = state_.Listen();
+    assert(result);
+  }
+  
+  void Connect(uint32_t seq, uint16_t window) {
+    state_.SendSyn(seq, window);
+  }
+  
+  void CloseConnection() {
+    auto result = state_.SendFin();
+    assert(result);
+  }
+  
  private:
-  void PreprePackageForSending(TcpPackage &package) {
-    auto &header = package.GetHeader();
-    if (!header.Syn() && !header.Rst() && !header.Fin())
-      new(&header) TcpHeader();
+  void SendAck() override {
+    std::cerr << __func__ << std::endl;
+    TcpPackage package(nullptr, nullptr);
+    package.GetHeader().SetAck(true);
+    state_.PrepareSpecialHeader(package.GetHeader());
     
-    header.SourcePort() = host_port_;
-    header.DestinationPort() = peer_port_;
-    
-    if (!header.Syn()) {
-      header.SequenceNumber() = host_next_seq_;
-      host_next_seq_ += package.Length();
-      
-      header.AcknowledgementNumber() = host_last_ack_;
-      header.SetAck(true);
-    }
-
-    header.Window() = host_window_;
-    header.Checksum() = 0;
-    header.Checksum() = package.CalculateChecksum();
+    AddPackageForSending(std::move(package));
   }
   
-  void SendSyn() {
+  void SendConditionAck() override {
+    std::cerr << __func__ << std::endl;
+    if (state_.GetLastPackageSize() == 0)
+      return ;
+    
     TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SequenceNumber() = host_initial_seq_;
+    package.GetHeader().SetAck(true);
+    state_.PrepareSpecialHeader(package.GetHeader());
+    
+    AddPackageForSending(std::move(package));
+  }
+  
+  void SendSyn(uint32_t, uint16_t) override {
+    std::cerr << __func__ << std::endl;
+    TcpPackage package(nullptr, nullptr);
     package.GetHeader().SetSyn(true);
+    package.GetHeader().SequenceNumber() = state_.GetInitialSequenceNumber();
+    state_.PrepareSpecialHeader(package.GetHeader());
+    
     AddPackageForSending(std::move(package));
   }
-  
-  void SendAck() {
+  void SendSynAck(uint32_t, uint16_t) override {
+    std::cerr << __func__ << std::endl;
     TcpPackage package(nullptr, nullptr);
-    AddPackageForSending(std::move(package));
-  }
-  
-  void SendSynAck() {
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SequenceNumber() = host_initial_seq_;
     package.GetHeader().SetSyn(true);
     package.GetHeader().SetAck(true);
+    package.GetHeader().SequenceNumber() = state_.GetInitialSequenceNumber();
+    state_.PrepareSpecialHeader(package.GetHeader());
+    
     AddPackageForSending(std::move(package));
   }
   
-  void SendRst() {
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetRst(true);
-    AddPackageForSending(std::move(package));
-  }
-  
-  void SendFin() {
+  void SendFin() override {
+    std::cerr << __func__ << std::endl;
     TcpPackage package(nullptr, nullptr);
     package.GetHeader().SetFin(true);
+    package.GetHeader().SetAck(true);
+    state_.PrepareSpecialHeader(package.GetHeader());
+    
     AddPackageForSending(std::move(package));
   }
   
-  // all peer
-  int HeaderCheckUpdate(const TcpPackage &package) {
-    const auto &header = package.GetHeader();
-    auto seq = header.SequenceNumber();
-    auto ack = header.AcknowledgementNumber();
-    auto len = package.Length();
-    auto window = header.Window();
-    auto event = header.ParseEvent();
+  void SendRst() override {
+    std::cerr << __func__ << std::endl;
+    TcpPackage package(nullptr, nullptr);
+    package.GetHeader().SetRst(true);
+    package.GetHeader().SetAck(true);
+    state_.PrepareSpecialHeader(package.GetHeader());
     
-    if (event == Event::kSynRecv) {
-      if (state_ != Stage::kHandShake) {
-        return -1;
-      } else if (state_ == State::kListen) {
-        return 1;
-      } else if (state_ == State::kSynSent) {
-        // update
-        peer_initial_seq_ = seq;
-        state_.OnEvent(event);
-        return 0;
-      }
-      return -2;
-      
-    } else if (event == Event::kAckRecv) {
-      if (state_ == State::kSynRcvd ) {
-        if (seq != host_last_ack_)
-          return -3;
-        if (ack != host_next_seq_)
-          return -4;
-        peer_last_ack_ = ack;
-        peer_window_ = window;
-        return 0;
-        
-      } else if (state_ == State::kEstab ||
-                 state_ == State::kFinWait1 ||
-                 state_ == State::kClosing ||
-                 state_ == State::kLastAck) {
-        // check seq/ack
-        auto ret = AckSeqCheck(seq, ack, len);
-        if (ret == 0) {
-          peer_last_ack_ = ack;
-          peer_window_ = window;
-        }
-        return ret;
-      }
-      return -5;
-      
-    } else if (event == Event::kSynAckRecv) {
-      if (state_ == State::kSynSent) {
-        // check seq/ack
-        auto ret = AckSeqCheck(seq, ack, len);
-        if (ret == 0) {
-          peer_last_ack_ = ack;
-          host_last_ack_ = seq+1;
-          peer_window_ = window;
-        }
-        return ret;
-      }
-      return -6;
-      
-    } else if (event == Event::kFinRecv) {
-      if (state_ == State::kSynRcvd ||
-          state_ == State::kEstab ||
-          state_ == State::kFinWait1 ||
-          state_ == State::kFinWait2) {
-        auto ret = AckSeqCheck(seq, ack, len);
-        if (ret == 0) {
-          peer_last_ack_ = ack;
-          peer_window_ = window;
-        }
-        return ret;
-      }
-      return -7;
-      
-    } else if (event == Event::kRst) {
-      if (seq == host_last_ack_)
-        return 2;
-      return -8;
-      
-    } else if (event == Event::kFinAckRecv) {
-      ;
-      
-    } else if (event == Event::kNone) {
-      return -11;
-    } else {
-      std::cerr << static_cast<int>(event) << std::endl;
-      throw std::runtime_error("TcpInternal::HeaderCheckUpdate failed");
-    }
-    
-    if (event == Event::kFinRecv) {
-      if (state_ != State::kSynRcvd &&
-          state_ != State::kEstab &&
-          state_ != State::kFinWait1)
-        return -9;
-      if (seq < host_last_ack_)
-        return -10;
-      return 0;
-    }
-    
-    throw std::runtime_error("TcpInternal::HeaderCheck State Error");
+    AddPackageForSending(std::move(package));
   }
   
-  int AckSeqCheck(uint32_t seq, uint32_t ack, size_t len) {
-    if (seq < peer_initial_seq_)
-      return -101;
-    if (seq+len > host_last_ack_+host_window_)
-      return -102;
-    if (seq < host_last_ack_)
-      return -103;
-    if (ack < host_initial_seq_)
-      return -104;
-    if (ack > host_next_seq_)
-      return -105;
-    
-    return 0;
+  void Accept() override {
+    std::cerr << __func__ << std::endl;
+    unsequenced_packages_.emplace(
+        current_package_.GetHeader().SequenceNumber(),
+        std::move(current_package_));
   }
   
-  void EstabUpdateState() {
-    auto ite = unsequenced_packages_.begin();
-    while (ite != unsequenced_packages_.end()) {
-      if (ite->first == host_last_ack_) {
-        const auto &package = ite->second;
-        host_last_ack_ = package.GetHeader().SequenceNumber() +
-            package.Length();
-
-        buffer_.AddToReadBuffer(std::move(ite->second));
-      } else if (ite->first > host_last_ack_) {
-        break;
-      }
-      
-      unsequenced_packages_.erase(ite);
-      ++ite;
-    }
+  void Discard() override {
+    std::cerr << __func__ << std::endl;
+  }
+  
+  void Close() override {
+    std::cerr << __func__ << std::endl;
+  }
+  
+  void NewConnection() override {
+    std::cerr << __func__ << std::endl;
   }
   
   uint64_t id_;
@@ -332,15 +196,8 @@ class TcpInternal {
   
   TcpManager *manager_;
   
-  uint32_t peer_initial_seq_; // HeaderCheckUpdate
-  uint32_t peer_last_ack_; // HeaderCheckUpdate
-  uint32_t peer_window_; // HeaderCheckUpdate
-  
-  uint32_t host_initial_seq_ = 10; // none
-  uint32_t host_next_seq_ = host_initial_seq_+1; // GetPackagesForSending
-  uint32_t host_last_ack_; // EstabUpdateState
-  uint32_t host_window_ = 4096; // none
-  
+  TcpPackage current_package_;
+
   uint16_t host_port_;
   uint16_t peer_port_;
   
@@ -355,15 +212,11 @@ class TcpSocket {
   TcpSocket(std::weak_ptr<TcpInternal> internal) : internal_(internal) {}
   
   int Listen() {
-    if (internal_.expired())
-      return -1;
-    return internal_.lock()->Listen();
+    return 0;
   }
   
   std::pair<bool, TcpSocket> Accept() {
-    if (internal_.expired())
-      return {false, {}};
-    return {true, internal_.lock()->AcceptConnection()};
+    return {false, {}};
   }
   
   TcpSocket Connect() {

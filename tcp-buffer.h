@@ -12,9 +12,6 @@
 #include <stdexcept>
 #include <utility>
 
-#include "tcp-state-machine.h"
-
-
 class NetworkPackage {
  public:
   static auto NewPackage(size_t size) {
@@ -189,26 +186,6 @@ class TcpHeader {
     return field_.At<uint16_t>(142);
   }
   
-  auto ParseEvent() const {
-    if (Rst())
-      return Event::kRst;
-    
-    if (Fin())
-      return Event::kFinRecv;
-    
-    if (Syn()) {
-      if (Ack())
-        return Event::kSynAckRecv;
-      else
-        return Event::kSynRecv;
-    }
-    
-    if (Ack())
-      return Event::kAckRecv;
-    
-    return Event::kNone;
-  }
-  
  private:
   Field<5> field_;
 };
@@ -308,29 +285,14 @@ class TcpPackage {
 
 class TcpBuffer {
  public:
-  template <class UnaryFunction>
-  std::list<std::shared_ptr<NetworkPackage> > GetWritePackages(
-      uint32_t size, UnaryFunction fn) {
-    std::list<std::shared_ptr<NetworkPackage> > result;
-    std::cerr << __func__ << ": write buffer size " << write_buffer_.size() << std::endl;
-    
-    while (!write_buffer_.empty() &&
-           size-write_buffer_.front().Length() >= 0) {
-      
-      size -= write_buffer_.front().Length();
-      std::cerr << __func__ << ": Move a package to write, PackageLength:" << write_buffer_.front().Length()
-                << " SizeLeft:" << size << std::endl;
-      MoveFrontWriteToAck();
-      std::cerr << __func__ << ": Call fn, unack_packagesSize:" << unack_packages_.size() << std::endl;
-      fn(unack_packages_.back());
-      std::cerr << __func__ << ": Push to result" << std::endl;
-      result.push_back(static_cast<std::shared_ptr<NetworkPackage> >(
-          unack_packages_.back()));
-    }
-    return result;
+
+  TcpPackage *GetFrontWritePackage() {
+    if (write_buffer_.empty())
+      return nullptr;
+    return &write_buffer_.front();
   }
   
-  void MoveFrontWriteToAck() {
+  void MoveFrontWriteToUnack() {
     if (!write_buffer_.empty()) {
       unack_packages_.emplace_back(std::move(write_buffer_.front()));
       write_buffer_.pop_front();
