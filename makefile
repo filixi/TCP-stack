@@ -1,14 +1,24 @@
-boost_dir = -I /usr/include/boost/include
-boost_lib_dir = -L /usr/include/boost/lib
+CC = g++
+STD = -std=c++14
+FLAG = -Wall #-Wconversion
+LIBRARY = -pthread
 
-boost_library = -lboost_system -lboost_thread -lboost_context\
-	-lboost_coroutine -lboost_serialization
+INCLUDE = -I ./include/
 
-library = -pthread
+main: tcp-buffer.o tcp-state-machine.o tcp.o network.o
+	$(CC) $(STD) main.cc *.o $(LIBRARY) $(FLAG)
 
-dir = $(boost_dir) $(boost_lib_dir)
+tcp-buffer.o: src/tcp-buffer.cc include/tcp-buffer.h
+	$(CC) $(STD) -c src/tcp-buffer.cc $(FLAG) $(INCLUDE)
 
-source = tcp.cc tcp-buffer.cc tcp-state-machine.cc network.cc
+tcp-state-machine.o: src/tcp-state-machine.cc include/tcp-state-machine.h
+	$(CC) $(STD) -c src/tcp-state-machine.cc $(FLAG) $(INCLUDE)
 
-main:
-	g++ $(dir) main.cc $(source) $(library) -Wall #-Wconversion
+tcp.o: src/tcp.cc include/tcp.h
+	$(CC) $(STD) -c src/tcp.cc $(FLAG) $(INCLUDE)
+
+network.o: src/network.cc include/network.h
+	$(CC) $(STD) -c src/network.cc $(FLAG) $(INCLUDE)
+
+clean:
+	rm *.o

@@ -1,9 +1,6 @@
 
-#include <vector>
-#include <stdio.h>
-
-#include "tcp.h"
-#include "network.h"
+#include "include/tcp.h"
+#include "include/network.h"
 
 #include <iostream>
 
