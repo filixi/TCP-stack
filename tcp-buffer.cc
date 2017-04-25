@@ -17,3 +17,21 @@ std::ostream &operator<<(std::ostream &o,
   }
   return o;
 }
+
+std::ostream &operator<<(std::ostream &o,
+                         const TcpPackage &package) {
+  const auto &header = package.GetHeader();
+  if (header.Ack())
+    o << "Ack ";
+  if (header.Syn())
+    o << "Syn ";
+  if (header.Rst())
+    o << "Rst ";
+  if (header.Fin())
+    o << "Fin ";
+  
+  o << header.SourcePort() << "->" << header.DestinationPort() << " ";
+  o << "S" << header.SequenceNumber() << " ";
+  o << "A" << header.AcknowledgementNumber();
+  return o;
+}

@@ -18,12 +18,19 @@ class NetworkPackage {
     return std::shared_ptr<NetworkPackage>(new NetworkPackage(size));
   }
   
+  static auto NewPackage(const char *begin, const char *end) {
+    assert(begin <= end);
+    auto package = NewPackage(static_cast<size_t>(end - begin));
+    std::copy(begin, end, package->begin_);
+    return package;
+  }
+  
   std::pair<char *, char *> GetBuffer() {
     return {begin_, end_};
   }
   
   size_t Length() const {
-    return end_ - begin_;
+    return static_cast<size_t>(end_ - begin_);
   }
   
   ~NetworkPackage() {
@@ -186,6 +193,10 @@ class TcpHeader {
     return field_.At<uint16_t>(142);
   }
   
+  bool Special() const {
+    return Psh() || Rst() || Syn() || Fin() || Urg();
+  }
+  
  private:
   Field<5> field_;
 };
@@ -204,7 +215,7 @@ class TcpPackage {
   }
       
   // Consturct a TcpPackage from a copy of a TcpHeader and a range of memory
-  TcpPackage(const TcpHeader &header, char *first, char *last) {
+  TcpPackage(const TcpHeader &header, const char *first, const char *last) {
     network_package_ = NetworkPackage::NewPackage(
       static_cast<size_t>(last-first) + sizeof(TcpHeader));
     std::copy(reinterpret_cast<const char *>(&header), 
@@ -215,7 +226,7 @@ class TcpPackage {
   }
   
   // Consturct a TcpPackage from a copy of a range of memory and default header
-  TcpPackage(char *first, char *last) {
+  TcpPackage(const char *first, const char *last) {
     network_package_ = NetworkPackage::NewPackage(
       static_cast<size_t>(last-first) + sizeof(TcpHeader));
     new(network_package_->GetBuffer().first) TcpHeader();
@@ -285,7 +296,6 @@ class TcpPackage {
 
 class TcpBuffer {
  public:
-
   TcpPackage *GetFrontWritePackage() {
     if (write_buffer_.empty())
       return nullptr;
@@ -342,6 +352,13 @@ class TcpBuffer {
     std::cerr << std::endl;
     return 0;
   }
+  
+  void Clear() {
+    read_buffer_.clear();
+    write_buffer_.clear();
+    unack_packages_.clear();
+  }
+  
  private:
   std::list<TcpPackage> read_buffer_;
   std::list<TcpPackage> write_buffer_;
@@ -351,5 +368,8 @@ class TcpBuffer {
 
 std::ostream &operator<<(std::ostream &o,
                          const std::shared_ptr<NetworkPackage> &ptr);
+
+std::ostream &operator<<(std::ostream &o,
+                         const TcpPackage &package);
 
 #endif // _TCP_BUFFER_H_
