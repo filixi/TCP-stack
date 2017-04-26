@@ -188,11 +188,14 @@ class PuppyTcpInternal : public TcpInternalInterface {
   }
 };
 
+
+
 class TcpStateMachine;
 template <class CharT, class Traits>
 std::basic_ostream<CharT, Traits> &operator<<(
     std::basic_ostream<CharT, Traits> &o, TcpStateMachine &m);
 
+class RulesOnState;
 class TcpStateMachine {
  public:
   template <class CharT, class Traits>

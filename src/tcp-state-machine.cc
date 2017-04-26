@@ -2,6 +2,59 @@
 
 namespace tcp_simulator {
 
+class RuleOnEvent {
+ public:
+  using CheckType = std::function<bool(void)>;
+  using ReactionType = std::function<void(TcpInternalInterface &)>;
+  RuleOnEvent(const CheckType &check,
+              const ReactionType &action_on_success,
+              const ReactionType &action_on_failure)
+      : state_checking_(check),
+        action_on_success_(action_on_success),
+        action_on_failure_(action_on_failure) {}
+        
+  std::pair<ReactionType, bool> CheckAndGetReaction() {
+    if (state_checking_())
+      return {action_on_success_, true};
+    return {action_on_failure_, false};
+  }
+  
+ private:
+  std::function<bool(void)> state_checking_; // seq/ack
+  ReactionType action_on_success_;
+  ReactionType action_on_failure_;
+};
+
+class RulesOnState {
+ public:
+  RulesOnState(const RuleOnEvent &default_rule)
+      : default_rule_(default_rule) {}
+  
+  void AddRule(Event event, const RuleOnEvent &rule) {
+    assert(std::none_of(rules_.begin(), rules_.end(),
+        [this, event](auto &x){
+          return x.first == event;
+        }));
+    
+    rules_.emplace_back(event, rule);
+  }
+  
+  auto GetReactionOnEvent(Event event) {
+    auto ite = std::find_if(rules_.begin(), rules_.end(),
+        [event](auto &x){
+          return x.first == event;
+        });
+    
+    if (ite != rules_.end())
+      return ite->second.CheckAndGetReaction();
+    return default_rule_.CheckAndGetReaction();
+  }
+  
+ private:
+  std::vector<std::pair<Event, RuleOnEvent> > rules_;
+  RuleOnEvent default_rule_;
+};
+
 std::vector<std::vector<
     std::tuple<
         Event, State, Stage,
