@@ -45,7 +45,7 @@ enum class Event {
   kFinSent,
   kSynSent,
   
-  kRst
+  kRstRecv
 };
 
 template <class CharT, class Traits>
@@ -81,7 +81,7 @@ std::basic_ostream<CharT, Traits> &operator<<(
     "kFinAckRecv",
     "kFinSend",
     "kSynSent",
-    "kRst"
+    "kRstRecv"
   };
   
   return o << event_string.at(static_cast<int>(event));
@@ -204,7 +204,7 @@ class TcpStateMachine {
   
   TcpStateMachine();
   
-  std::function<void(TcpInternalInterface &)> OnReceivePackage(
+  std::function<void(TcpInternalInterface *)> OnReceivePackage(
       const TcpHeader *header, uint16_t size);
   
   bool OnSequencePackage(TcpHeader &header, uint16_t size) {
@@ -239,24 +239,6 @@ class TcpStateMachine {
     if (header.Ack())
       header.AcknowledgementNumber() = host_last_ack_;
     header.Window() = host_window_;
-  }
-  
-  std::pair<std::function<void(TcpInternalInterface &)>, bool>
-  SpecialRule(Event event, const TcpHeader *header, uint16_t size) {
-    if (event == Event::kRst) {
-      std::cerr << "Rst Check" << std::endl;
-      if (!CheckPeerSeq(*header, size)) {
-        state_ = State::kClosed;
-        stage_ = Stage::kClosed;
-        return {[](auto &internal){internal.Reset();}, true};
-      }
-      return {[](auto &){}, true};
-    } else if (state_ == State::kListen) {
-      if (event == Event::kSynRecv)
-        return {[](auto &internal){internal.NewConnection();}, true};
-      return {[](auto &){}, true};
-    }
-    return {[](auto &){}, false};
   }
   
   bool FinSent() {
@@ -329,7 +311,7 @@ class TcpStateMachine {
   
   static Event ParseEvent(const TcpHeader *peer_header) {
     if (peer_header->Rst())
-      return Event::kRst;
+      return Event::kRstRecv;
     
     if (peer_header->Fin())
       return Event::kFinRecv;
@@ -383,38 +365,161 @@ class TcpStateMachine {
   }
   
  private:
-  int CheckPeerSeq(const TcpHeader &peer_header, uint16_t size) {
-    std::cerr << __func__ << peer_header.SequenceNumber() << " ";
-    if (peer_header.SequenceNumber() <= peer_initial_seq_)
-      return -1;
-    if (peer_header.SequenceNumber() + size >= host_last_ack_ + host_window_)
-      return -2;
-    if (peer_header.SequenceNumber() < host_last_ack_)
-      return -3;
-    return 0;
+  bool CheckSeq() const {
+    std::cerr << __func__ << header_->SequenceNumber() << " ";
+    if (header_->SequenceNumber() <= peer_initial_seq_)
+      return false;
+    if (header_->SequenceNumber() + size_ >= host_last_ack_ + host_window_)
+      return false;
+    if (header_->SequenceNumber() < host_last_ack_)
+      return false;
+    return true;
   }
   
-  int CheckPeerAck(const TcpHeader &peer_header, uint16_t size) {
-    std::cerr << __func__ << peer_header.AcknowledgementNumber() << std::endl;
-    if (peer_header.AcknowledgementNumber() < peer_last_ack_)
-      return -10;
-    if (peer_header.AcknowledgementNumber() > host_next_seq_)
-      return -20;
-    if (peer_header.AcknowledgementNumber() < host_initial_seq_)
-      return -30;
-    return 0;
+  bool CheckAck() const {
+    std::cerr << __func__ << header_->AcknowledgementNumber() << std::endl;
+    if (header_->AcknowledgementNumber() < peer_last_ack_)
+      return false;
+    if (header_->AcknowledgementNumber() > host_next_seq_)
+      return false;
+    if (header_->AcknowledgementNumber() < host_initial_seq_)
+      return false;
+    return true;
   }
   
-  void FullUpdate(const TcpHeader &peer_header, uint16_t size) {
-    peer_last_ack_ = std::max(peer_header.AcknowledgementNumber(),
+  bool FullCheck() const {
+    return CheckSeq() + CheckAck();
+  }
+  
+  bool FinAckCheck() const {
+    auto ret = FullCheck();
+    if (header_->AcknowledgementNumber() != host_next_seq_+1)
+      ret = false; // not Fin Ack
+    return ret;
+  }
+  
+  bool EmptyCheck() const {
+    return true;
+  }
+  
+  void FullUpdate() {
+    peer_last_ack_ = std::max(header_->AcknowledgementNumber(),
         peer_last_ack_);
-    peer_window_ = peer_header.Window();
+    peer_window_ = header_->Window();
   }
   
   void InitPeerInitialSeq(uint32_t seq) {
     peer_initial_seq_ = seq;
     host_last_ack_ = seq + 1;
   }
+  
+  void UpdateEmpty() {
+    
+  }
+
+  void UpdateClosed2SynRcvd() {
+    InitPeerInitialSeq(header_->SequenceNumber());
+    peer_window_ = header_->Window();
+    peer_last_ack_ = host_initial_seq_;
+    
+    state_ = State::kSynRcvd;
+    stage_ = Stage::kHandShake;
+  }
+  
+  void UpdateClosed2SynSent() {
+    state_ = State::kSynSent;
+    stage_ = Stage::kHandShake;
+  }
+  
+  void UpdateSynRcvd2Estab() {
+    FullUpdate();
+    
+    state_ = State::kEstab;
+    stage_ = Stage::kEstab;
+  }
+  
+  void UpdateSynRcvd2FinWait1() {
+    state_ = State::kFinWait1;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateSynSent2SynRcvd() {
+    UpdateClosed2SynRcvd();
+    
+    state_ = State::kSynRcvd;
+    stage_ = Stage::kHandShake;
+  }
+  
+  void UpdateSynSent2Estab() {
+    peer_initial_seq_ = header_->SequenceNumber();
+    peer_window_ = header_->Window();
+    peer_last_ack_ = header_->AcknowledgementNumber();
+    
+    host_last_ack_ = peer_initial_seq_+1;
+    
+    state_ = State::kEstab;
+    stage_ = Stage::kEstab;
+  }
+  
+  void UpdateEstab2Estab() {
+    FullUpdate();
+  }
+  
+  void UpdateEstab2CloseWait() {
+    FullUpdate();
+    host_last_ack_ = header_->SequenceNumber() + 1;
+    
+    state_ = State::kCloseWait;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateEstab2FinWait1() {
+    state_ = State::kFinWait1;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateFinWait12FinWait2() {
+    FullUpdate();
+    
+    state_ = State::kFinWait2;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateFinWait12Closing() {
+    UpdateEstab2CloseWait();
+    
+    state_ = State::kClosing;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateCloseWait2LastAck() {
+    state_ = State::kCloseWait;
+    stage_ = Stage::kClosing;
+  }
+  
+  void UpdateFinWait22Closed() {
+    UpdateEstab2CloseWait();
+    
+    state_ = State::kClosed;
+    stage_ = Stage::kClosed;
+  }
+  
+  void UpdateClosingToClosed() {
+    FullUpdate();
+    
+    state_ = State::kClosed;
+    stage_ = Stage::kClosed;
+  }
+  
+  void UpdateLastAck2Closed() {
+    FullUpdate();
+    
+    state_ = State::kClosed;
+    stage_ = Stage::kClosed;
+  }
+  
+  const TcpHeader *header_ = nullptr;
+  uint16_t size_ = 0;
   
   State state_ = State::kClosed;
   Stage stage_ = Stage::kClosed;
@@ -429,18 +534,8 @@ class TcpStateMachine {
   uint16_t host_window_ = 4096;
   
   uint16_t last_package_size_ = 0;
-  
-  static std::vector<std::vector<
-      std::tuple<
-          Event, State, Stage,
-          // < 0 discard, > 0 no discard, == 0 transstate
-          std::function<int(TcpStateMachine &, const TcpHeader *,
-                           uint16_t)>, // Check
-          std::function<void(TcpStateMachine &, const TcpHeader *,
-                           uint16_t)>, // Update
-          std::function<void(TcpInternalInterface &)>, // action on success
-          std::function<void(TcpInternalInterface &)> // action on failure
-      > > > tranform_rule_;
+
+  static std::vector<std::pair<State, RulesOnState> > transition_rules_;
 };
 
 template <class CharT, class Traits>

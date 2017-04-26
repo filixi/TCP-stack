@@ -65,7 +65,7 @@ void TcpInternal::ReceivePackage(TcpPackage package) {
   auto size = current_package_.Length();
   
   auto react = state_.OnReceivePackage(&current_package_.GetHeader(), size);
-  react(*this);
+  react(this);
   
   while (!unsequenced_packages_.empty()) {
     auto ite = unsequenced_packages_.begin();
