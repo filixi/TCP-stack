@@ -5,20 +5,26 @@ LIBRARY = -pthread
 
 INCLUDE = -I ./include/
 
-main: tcp-buffer.o tcp-state-machine.o tcp.o network.o
-	$(CC) $(STD) main.cc *.o $(LIBRARY) $(FLAG)
+main : tcp-buffer.o tcp-state-machine.o tcp.o network.o tcp-manager.o main.o
+	$(CC) $(STD) *.o $(LIBRARY) $(FLAG)
 
-tcp-buffer.o: src/tcp-buffer.cc include/tcp-buffer.h
+main.o : main.cc
+	$(CC) $(STD) -c main.cc $(FLAG) $(INCLUDE)
+
+tcp-buffer.o : include/tcp-buffer.h src/tcp-buffer.cc
 	$(CC) $(STD) -c src/tcp-buffer.cc $(FLAG) $(INCLUDE)
 
-tcp-state-machine.o: src/tcp-state-machine.cc include/tcp-state-machine.h
+tcp-state-machine.o : include/tcp-state-machine.h src/tcp-state-machine.cc
 	$(CC) $(STD) -c src/tcp-state-machine.cc $(FLAG) $(INCLUDE)
 
-tcp.o: src/tcp.cc include/tcp.h
+tcp.o : include/tcp.h src/tcp.cc
 	$(CC) $(STD) -c src/tcp.cc $(FLAG) $(INCLUDE)
 
-network.o: src/network.cc include/network.h
+network.o : include/network.h src/network.cc
 	$(CC) $(STD) -c src/network.cc $(FLAG) $(INCLUDE)
 
-clean:
+tcp-manager.o : include/tcp-manager.h src/tcp-manager.cc
+	$(CC) $(STD) -c src/tcp-manager.cc $(FLAG) $(INCLUDE)
+
+clean :
 	rm *.o

@@ -7,11 +7,14 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <thread>
 
-#include "tcp.h"
+#include "tcp-manager.h"
+
+namespace tcp_simulator {
 
 extern std::mutex g_mtx;
 
@@ -42,64 +45,20 @@ class NetworkService {
   template <class... Args>
   static std::shared_ptr<NetworkService> AsyncRun(Args&&... args) {
     auto ptr = std::make_shared<NetworkService>(std::forward<Args>(args)...);
-    ptr->thread_ = std::thread([ptr]{ptr->Run();});
+    std::promise<void> running;
+    auto future = running.get_future();
+    ptr->thread_ = std::thread([ptr, running(std::move(running))]() mutable {
+          ptr->Run(std::move(running));
+        });
+    
+    future.get();
     return ptr;
   }
   
   TcpSocket NewTcpSocket(uint16_t host_port) {
     return tcp_manager_.NewSocket(host_port);
   }
-  
-  void Run() {
-    std::cerr << __func__ << std::endl;
-    std::list<std::shared_ptr<NetworkPackage> > packages_for_sending;
-    int host_socket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (host_socket < 0)
-      throw std::runtime_error("socket errer");
-    bind(host_socket, (sockaddr *)&host_addr_, sizeof(sockaddr_in));
-    std::unique_ptr<char[]> buff(new char[102400]);
-    
-    for (int i = 0; i<30; ++i) {
-      pollfd fdarray[1] = {{host_socket, POLLIN, 0}};
-      auto ret = poll(fdarray, 1, 177);
-      
-      std::lock_guard<std::mutex> guard(g_mtx);
-      std::cerr << this << std::endl;
-      
-      if (ret < 0) {
-        if (ret != EINTR) {
-          std::cerr << "1";
-        }
-          
-      } else if (ret == 1) {
-        std::cerr << "Package receiving" << std::endl;
-        auto n = recvfrom(host_socket, buff.get(), 102400, 0,
-                          nullptr, nullptr);
-        if (n <= 0) {
-          std::cerr << "2";
-        } else {
-          std::cerr << "Package received" << std::endl;
-          auto package = NetworkPackage::NewPackage(buff.get(), buff.get()+n);
-          tcp_manager_.Multiplexing(package);
-        }
-      } else {
-        ;
-      }
-      
-      tcp_manager_.SwapPackagesForSending(packages_for_sending);
-      for (auto &package : packages_for_sending) {
-        char *begin = nullptr, *end = nullptr;
-        std::tie(begin, end) = package->GetBuffer();
-        sendto(host_socket, begin, static_cast<size_t>(end-begin), 0,
-               (sockaddr *)&peer_addr_, sizeof(sockaddr_in));
-        std::cerr << "Send package" << std::endl;
-      }
-      packages_for_sending.clear();
-      
-      std::cerr << std::endl;
-    }
-  }
-  
+
   void Terminate() {
     terminate_flag_.store(true);
     if (thread_.joinable())
@@ -111,9 +70,11 @@ class NetworkService {
   }
   
  private:
-  std::thread thread_;
-  std::atomic<bool> terminate_flag_{false};
+  void Run(std::promise<void> running);
   
+  std::atomic<bool> terminate_flag_{false};
+  std::thread thread_;
+
   sockaddr_in host_addr_;
   uint16_t host_port_;
   sockaddr_in peer_addr_;
@@ -123,5 +84,7 @@ class NetworkService {
 };
 
 void LittleUdpSender(uint16_t port);
+
+} // namespace tcp_simulator
 
 #endif // _NETWORK_H_

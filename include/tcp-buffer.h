@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <utility>
 
+namespace tcp_simulator {
+
 class NetworkPackage {
  public:
   static auto NewPackage(size_t size) {
@@ -272,19 +274,7 @@ class TcpPackage {
     return CalculateChecksum() == 0;
   }
   
-  uint16_t CalculateChecksum() {
-    uint32_t checksum = 0;
-    uint16_t * const buffer = reinterpret_cast<uint16_t *>(
-        network_package_->GetBuffer().first);
-    const auto size = network_package_->Length();
-    size_t i = 0;
-    for (; i<size/2; ++i)
-      checksum += buffer[i];
-    if (size%2)
-      checksum += network_package_->GetBuffer().first[size-1];
-
-    return ~checksum;
-  }
+  uint16_t CalculateChecksum();
   
  private:
   auto GetNetworkPackage() {
@@ -371,5 +361,7 @@ std::ostream &operator<<(std::ostream &o,
 
 std::ostream &operator<<(std::ostream &o,
                          const TcpPackage &package);
+
+} // namespace tcp_simulator
 
 #endif // _TCP_BUFFER_H_

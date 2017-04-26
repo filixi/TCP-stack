@@ -1,5 +1,9 @@
 #include "tcp.h"
 
+#include "tcp-manager.h"
+
+namespace tcp_simulator {
+
 std::list<std::shared_ptr<NetworkPackage> >
 TcpInternal::GetPackagesForSending() {
   
@@ -11,7 +15,8 @@ TcpInternal::GetPackagesForSending() {
     
     std::cerr << __func__ << " @ ";
     std::cerr << "GetSeq" << package->Length() << " ";
-    auto sequence_number = state_.GetSequenceNumber(package->Length());
+    auto sequence_number = state_.GetSequenceNumber(
+        static_cast<uint16_t>(package->Length()));
     if (sequence_number.second == false)
       break;
     package->GetHeader().SequenceNumber() = sequence_number.first;
@@ -59,7 +64,9 @@ void TcpInternal::ReceivePackage(TcpPackage package) {
   current_package_ = std::move(package);
   auto size = current_package_.Length();
   
-  state_.OnReceivePackage(&current_package_.GetHeader(), size);
+  auto react = state_.OnReceivePackage(&current_package_.GetHeader(), size);
+  react(*this);
+  
   while (!unsequenced_packages_.empty()) {
     auto ite = unsequenced_packages_.begin();
     auto &package = ite->second;
@@ -102,7 +109,9 @@ void TcpInternal::Connect(uint16_t port, uint32_t seq, uint16_t window) {
   assert(host_port_ != 0 && peer_port_ != 0);
   
   manager_->RegestBound(host_port_, peer_port_, id_);
-  state_.SendSyn(seq, window);
+  auto result = state_.SynSent(seq, window);
+  assert(result);
+  SendSyn();
 }
 
 int TcpInternal::Listen(uint16_t port) {
@@ -123,3 +132,5 @@ TcpSocket TcpSocket::Accept() {
 void TcpSocket::Connect(uint16_t port) {
   internal_.lock()->Connect(port, 1425, 10240);
 }
+
+} // namespace tcp_simulator

@@ -11,6 +11,8 @@
 
 #include "tcp-buffer.h"
 
+namespace tcp_simulator {
+
 enum class State{
   kClosed = 0,
   kListen,
@@ -197,54 +199,10 @@ class TcpStateMachine {
   friend std::basic_ostream<CharT, Traits>
   &operator<<(std::basic_ostream<CharT, Traits> &, TcpStateMachine &);
   
-  TcpStateMachine(TcpInternalInterface *internal);
+  TcpStateMachine();
   
-  void OnReceivePackage(const TcpHeader *header, uint16_t size) {
-    assert(header);
-    
-    auto event = ParseEvent(header);
-    std::cerr << __func__ << ": " << event << " ";
-    constexpr int Check = 3;
-    constexpr int Update = 4;
-    constexpr int Success = 5;
-    constexpr int Failed = 6;
-    
-    last_package_size_ = size;
-    
-    if (SpecialRule(event, header, size)) { // Event::kRst State::Listen
-      std::cerr << "SpecialRule!" << std::endl;
-      return ;
-    } 
-    
-    const auto &rule = tranform_rule_[static_cast<int>(state_)];
-    
-    for (auto &condition : rule) {
-      if (std::get<0>(condition) == event) {
-        auto check_result = std::get<Check>(condition)(*this, header, size);
-        std::cerr << "!" << check_result << " ";
-        if (check_result == 0) {
-          state_ = std::get<1>(condition);
-          stage_ = std::get<2>(condition);
-
-          std::get<Update>(condition)(*this, header, size);
-          std::get<Success>(condition)(*this);
-          
-        } else if (check_result > 0) {
-          std::get<Update>(condition)(*this, header, size);
-          std::get<Success>(condition)(*this);
-          
-        } else {
-          std::get<Failed>(condition)(*this);
-        }
-        
-        std::cout << " end" << std::endl;
-        return ;
-      }
-    }
-    
-    std::get<Failed>(tranform_rule_.back().front())(*this); // default
-    std::cerr << " end" << std::endl;
-  }
+  std::function<void(TcpInternalInterface &)> OnReceivePackage(
+      const TcpHeader *header, uint16_t size);
   
   bool OnSequencePackage(TcpHeader &header, uint16_t size) {
     if (header.SequenceNumber() == host_last_ack_) {
@@ -280,24 +238,25 @@ class TcpStateMachine {
     header.Window() = host_window_;
   }
   
-  bool SpecialRule(Event event, const TcpHeader *header, uint16_t size) {
+  std::pair<std::function<void(TcpInternalInterface &)>, bool>
+  SpecialRule(Event event, const TcpHeader *header, uint16_t size) {
     if (event == Event::kRst) {
       std::cerr << "Rst Check" << std::endl;
       if (!CheckPeerSeq(*header, size)) {
         state_ = State::kClosed;
         stage_ = Stage::kClosed;
-        internal_->Reset();  
+        return {[](auto &internal){internal.Reset();}, true};
       }
-      return true;
+      return {[](auto &){}, true};
     } else if (state_ == State::kListen) {
       if (event == Event::kSynRecv)
-        internal_->NewConnection();
-      return true;
+        return {[](auto &internal){internal.NewConnection();}, true};
+      return {[](auto &){}, true};
     }
-    return false;
+    return {[](auto &){}, false};
   }
   
-  bool SendFin() {
+  bool FinSent() {
     std::cerr << "Send Fin" << std::endl;
     if (state_ == State::kSynRcvd) {
       std::cerr << "kSynRcvd" << std::endl;
@@ -316,12 +275,11 @@ class TcpStateMachine {
       return false;
     }
     
-    internal_->SendFin();
     ++host_next_seq_;
     return true;
   }
   
-  bool SendSyn(uint32_t seq, uint16_t window) {
+  bool SynSent(uint32_t seq, uint16_t window) {
     if (state_ == State::kClosed) {
       host_initial_seq_ = seq;
       host_next_seq_ = seq+1;
@@ -332,7 +290,6 @@ class TcpStateMachine {
       
       state_ = State::kSynSent;
       stage_ = Stage::kHandShake;
-      internal_->SendSyn();
       return true;
     }
     
@@ -466,22 +423,21 @@ class TcpStateMachine {
   uint32_t host_initial_seq_ = 100;
   uint32_t host_next_seq_ = host_initial_seq_+1;
   uint32_t host_last_ack_ = 0;
-  uint32_t host_window_ = 4096;
+  uint16_t host_window_ = 4096;
   
   uint16_t last_package_size_ = 0;
   
-  TcpInternalInterface *internal_ = nullptr;
-  
   static std::vector<std::vector<
-      std::tuple<Event, State, Stage,
-                 // < 0 discard, > 0 no discard, == 0 transstate
-                 std::function<int(TcpStateMachine &, const TcpHeader *,
-                                   uint16_t)>, // Check
-                 std::function<void(TcpStateMachine &, const TcpHeader *,
-                                   uint16_t)>, // Update
-                 std::function<void(TcpStateMachine &)>, // action on success
-                 std::function<void(TcpStateMachine &)> // action on failure
-                > > > tranform_rule_;
+      std::tuple<
+          Event, State, Stage,
+          // < 0 discard, > 0 no discard, == 0 transstate
+          std::function<int(TcpStateMachine &, const TcpHeader *,
+                           uint16_t)>, // Check
+          std::function<void(TcpStateMachine &, const TcpHeader *,
+                           uint16_t)>, // Update
+          std::function<void(TcpInternalInterface &)>, // action on success
+          std::function<void(TcpInternalInterface &)> // action on failure
+      > > > tranform_rule_;
 };
 
 template <class CharT, class Traits>
@@ -505,5 +461,7 @@ std::basic_ostream<CharT, Traits> &operator<<(
 
   return o;
 }
+
+} // namespace tcp_simulator
 
 #endif // _TCP_STATE_MACHINE_H_

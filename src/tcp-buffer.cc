@@ -1,5 +1,21 @@
 #include "tcp-buffer.h"
 
+namespace tcp_simulator {
+
+uint16_t TcpPackage::CalculateChecksum() {
+  uint32_t checksum = 0;
+  uint16_t * const buffer = reinterpret_cast<uint16_t *>(
+      network_package_->GetBuffer().first);
+  const auto size = network_package_->Length();
+  size_t i = 0;
+  for (; i<size/2; ++i)
+    checksum += buffer[i];
+  if (size%2)
+    checksum += network_package_->GetBuffer().first[size-1];
+
+  return static_cast<uint16_t>(~checksum);
+}
+
 std::ostream &operator<<(std::ostream &o,
                          const std::shared_ptr<NetworkPackage> &ptr) {
   auto range = ptr->GetBuffer();
@@ -34,4 +50,6 @@ std::ostream &operator<<(std::ostream &o,
   o << "S" << header.SequenceNumber() << " ";
   o << "A" << header.AcknowledgementNumber();
   return o;
+}
+
 }

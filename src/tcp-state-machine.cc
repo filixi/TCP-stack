@@ -1,21 +1,23 @@
 #include "tcp-state-machine.h"
 
-std::vector<std::vector<
-    std::tuple<Event, State, Stage,
-               // < 0 discard, > 0 no discard, == 0 transstate
-               std::function<int(TcpStateMachine &, const TcpHeader *,
-                                 uint16_t)>, // Check
-               std::function<void(TcpStateMachine &, const TcpHeader *,
-                                 uint16_t)>, // Update
-               std::function<void(TcpStateMachine &)>, // action on success
-               std::function<void(TcpStateMachine &)> // action on failure
-              > > > TcpStateMachine::tranform_rule_;
+namespace tcp_simulator {
 
-TcpStateMachine::TcpStateMachine(TcpInternalInterface *internal) {
+std::vector<std::vector<
+    std::tuple<
+        Event, State, Stage,
+        // < 0 discard, > 0 no discard, == 0 transstate
+        std::function<int(TcpStateMachine &, const TcpHeader *,
+                         uint16_t)>, // Check
+        std::function<void(TcpStateMachine &, const TcpHeader *,
+                         uint16_t)>, // Update
+        std::function<void(TcpInternalInterface &)>, // action on success
+        std::function<void(TcpInternalInterface &)> // action on failure
+    > > > TcpStateMachine::tranform_rule_;
+
+TcpStateMachine::TcpStateMachine() {
   using St = State;
   using Sg = Stage;
   using Ev = Event;
-  internal_ = internal;
   
   if (tranform_rule_.size() == 0) {
   //  unused
@@ -55,48 +57,48 @@ TcpStateMachine::TcpStateMachine(TcpInternalInterface *internal) {
         };
     auto empty_update = [](TcpStateMachine &, const TcpHeader *, uint16_t) {};
     
-    auto send_ack = [](TcpStateMachine &machine){
-          machine.internal_->Accept();
-          machine.internal_->SendAck();
+    auto send_ack = [](TcpInternalInterface &internal){
+          internal.Accept();
+          internal.SendAck();
         };
-    auto send_cond_ack = [](TcpStateMachine &machine){
-          machine.internal_->Accept();
-          machine.internal_->SendConditionAck();
+    auto send_cond_ack = [](TcpInternalInterface &internal){
+          internal.Accept();
+          internal.SendConditionAck();
         };
-    auto send_syn = [](TcpStateMachine &machine){
-          machine.internal_->Accept();
-          machine.internal_->SendSyn();
+    auto send_syn = [](TcpInternalInterface &internal){
+          internal.Accept();
+          internal.SendSyn();
         };
-    auto send_synack = [](TcpStateMachine &machine){
-          machine.internal_->Accept();
-          machine.internal_->SendSynAck();
+    auto send_synack = [](TcpInternalInterface &internal){
+          internal.Accept();
+          internal.SendSynAck();
         };
-    auto send_fin = [](TcpStateMachine &machine){
-          machine.internal_->Accept();
-          machine.internal_->SendFin();
+    auto send_fin = [](TcpInternalInterface &internal){
+          internal.Accept();
+          internal.SendFin();
         };
-    auto send_rst = [](TcpStateMachine &machine){
-          machine.internal_->Discard();
-          machine.internal_->SendRst();
+    auto send_rst = [](TcpInternalInterface &internal){
+          internal.Discard();
+          internal.SendRst();
         };
   //  unused
-  //  auto accept = [](TcpStateMachine &machine){
-  //        machine.internal_->Accept();
+  //  auto accept = [](TcpInternalInterface &internal){
+  //        internal->Accept();
   //      };
-    auto response_fin = [](TcpStateMachine &machine) {
-          machine.internal_->Accept();
-          machine.internal_->SendAck();
+    auto response_fin = [](TcpInternalInterface &internal) {
+          internal.Accept();
+          internal.SendAck();
         };
-    auto close = [](TcpStateMachine &machine) {
-          machine.internal_->Close();
+    auto close = [](TcpInternalInterface &internal) {
+          internal.Close();
         };
-    auto discard = [](TcpStateMachine &machine) {
-          machine.internal_->Discard();
+    auto discard = [](TcpInternalInterface &internal) {
+          internal.Discard();
         };
-    auto nope = [](TcpStateMachine &machine) {
+    auto nope = [](TcpInternalInterface &internal) {
           throw std::runtime_error("TcpState unexpected action error");
         };
-    auto none = [](TcpStateMachine &machine) {};
+    auto none = [](TcpInternalInterface &internal) {};
     
     tranform_rule_.resize(static_cast<int>(St::kTimeWait)+2);
     tranform_rule_[0] = { // State::kClosed
@@ -179,3 +181,52 @@ TcpStateMachine::TcpStateMachine(TcpInternalInterface *internal) {
             empty_check, empty_check, nope, discard)};
   }
 }
+
+std::function<void(TcpInternalInterface &)> TcpStateMachine::OnReceivePackage(
+    const TcpHeader *header, uint16_t size) {
+  assert(header);
+  
+  auto event = ParseEvent(header);
+  std::cerr << __func__ << ": " << event << " ";
+  constexpr int Check = 3;
+  constexpr int Update = 4;
+  constexpr int Success = 5;
+  constexpr int Failed = 6;
+  
+  last_package_size_ = size;
+  
+  // Event::kRst State::Listen
+  auto sepcial_rule_result = SpecialRule(event, header, size);
+  if (sepcial_rule_result.second) { 
+    std::cerr << "SpecialRule applied" << std::endl;
+    return sepcial_rule_result.first;
+  } 
+  
+  const auto &rule = tranform_rule_[static_cast<int>(state_)];
+  
+  for (auto &condition : rule) {
+    if (std::get<0>(condition) == event) {
+      auto check_result = std::get<Check>(condition)(*this, header, size);
+      std::cerr << "Check Result: " << check_result << " ";
+      if (check_result == 0) {
+        state_ = std::get<1>(condition);
+        stage_ = std::get<2>(condition);
+
+        std::get<Update>(condition)(*this, header, size);
+        return std::get<Success>(condition);
+        
+      } else if (check_result > 0) {
+        std::get<Update>(condition)(*this, header, size);
+        return std::get<Success>(condition);
+        
+      } else {
+        return std::get<Failed>(condition);
+      }
+    }
+  }
+  
+  std::cerr << " end" << std::endl;
+  return std::get<Failed>(tranform_rule_.back().front()); // default
+}
+
+} // namespace tcp_simulator

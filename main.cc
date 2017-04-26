@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+using namespace tcp_simulator;
+
 int main() {
   auto service1 = NetworkService::AsyncRun(
       "127.0.0.1", 15259, "127.0.0.1", 15260);
@@ -12,8 +14,6 @@ int main() {
   
   auto sock1 = service1->NewTcpSocket(15);
   auto sock2 = service2->NewTcpSocket(25);
-  
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
   
   sock1.Listen(15);
   sock2.Connect(15);
