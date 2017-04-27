@@ -1,5 +1,5 @@
-#ifndef _TCP_H_
-#define _TCP_H_
+#ifndef _TCP_INTERNAL_H_
+#define _TCP_INTERNAL_H_
 
 #include <iostream>
 #include <list>
@@ -197,41 +197,6 @@ class TcpInternal : public TcpInternalInterface {
   std::map<uint32_t, TcpPacket> unsequenced_packets_;
 };
 
-class TcpSocket {
- public:
-  TcpSocket() {}
-  TcpSocket(std::weak_ptr<TcpInternal> internal) : internal_(internal) {}
-  
-  int Listen(uint16_t port) {
-    return internal_.lock()->SocketListen(port);
-  }
-  
-  TcpSocket Accept();
-  
-  void Connect(uint16_t port);
-  
-  auto Read() {
-    using PacketsType = std::list<TcpPacket>;
-    if (internal_.expired())
-      return std::make_pair(PacketsType{}, false);
-    return std::make_pair(internal_.lock()->SocketGetReceivedPackets(), true);
-  }
-  
-  int Write(const char *first, const char *last) {
-    return internal_.lock()->SocketAddPacketForSending(first, last);;
-  }
-  
-  int Close() {
-    if (internal_.expired())
-      return -1;
-    internal_.lock()->SocketCloseConnection();
-    return 0;
-  }
-  
- private:
-  std::weak_ptr<TcpInternal> internal_;
-};
-
 } // namespace tcp_simulator
 
-#endif // _TCP_H_
+#endif // _TCP_INTERNAL_H_

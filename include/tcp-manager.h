@@ -8,8 +8,9 @@
 #include <mutex>
 #include <utility>
 
-#include "tcp.h"
 #include "tcp-buffer.h"
+#include "tcp-internal.h"
+#include "tcp-socket.h"
 #include "tcp-state-machine.h"
 
 namespace tcp_simulator {

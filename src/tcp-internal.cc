@@ -1,4 +1,4 @@
-#include "tcp.h"
+#include "tcp-internal.h"
 
 #include "tcp-manager.h"
 
@@ -118,14 +118,6 @@ int TcpInternal::Listen(uint16_t port,
   peer_port_ = 0;
   tcp_manager_.Bind(host_port_, peer_port_, id_, guard);
   return 0;
-}
-
-TcpSocket TcpSocket::Accept() {
-  return internal_.lock()->SocketAcceptConnection();
-}
-
-void TcpSocket::Connect(uint16_t port) {
-  internal_.lock()->SocketConnect(port, 1425, 10240);
 }
 
 } // namespace tcp_simulator

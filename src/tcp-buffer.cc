@@ -52,4 +52,4 @@ std::ostream &operator<<(std::ostream &o,
   return o;
 }
 
-}
+} // namespace tcp_simulator
