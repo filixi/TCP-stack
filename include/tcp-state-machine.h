@@ -139,6 +139,10 @@ class TcpInternalInterface {
   virtual void NewConnection() = 0;
   virtual void Reset() = 0;
   
+  virtual void NotifyOnConnected() = 0;
+  virtual void NotifyOnReceivingMessage() = 0;
+  virtual void NotifyOnNewConnection(size_t) = 0;
+  
   virtual ~TcpInternalInterface() = default;
 };
 

@@ -209,27 +209,27 @@ void TcpStateMachine::PrepareHeader(TcpHeader &header, uint16_t size) const {
 void TransitionRule::InitRule(RulesType *rules) {
   auto &transition_rules = *rules;
   // action
-  auto send_ack = [](TcpInternalInterface *internal){
+  auto send_ack = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendAck();
       };
-  auto send_cond_ack = [](TcpInternalInterface *internal){
+  auto send_cond_ack = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendConditionAck();
       };
-  auto send_syn = [](TcpInternalInterface *internal){
+  auto send_syn = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendSyn();
       };
-  auto send_synack = [](TcpInternalInterface *internal){
+  auto send_synack = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendSynAck();
       };
-  auto send_fin = [](TcpInternalInterface *internal){
+  auto send_fin = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendFin();
       };
-  auto send_rst = [](TcpInternalInterface *internal){
+  auto send_rst = [](TcpInternalInterface *internal) {
         internal->Discard();
         internal->SendRst();
       };
@@ -237,6 +237,9 @@ void TransitionRule::InitRule(RulesType *rules) {
 //  auto accept = [](TcpInternalInterface &internal){
 //        internal->Accept();
 //      };
+  auto connected = [](TcpInternalInterface *internal) {
+        internal->NotifyOnConnected();
+      };
   auto response_fin = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendAck();
@@ -301,7 +304,7 @@ void TransitionRule::InitRule(RulesType *rules) {
                RuleOnEvent(&M::FullCheck,
                            &M::UpdateSynRcvd2Estab,
                            &M::UpdateEmpty,
-                           none, send_rst))
+                           connected, send_rst))
       .AddRule(Event::kFinSent,
                RuleOnEvent(&M::EmptyCheck,
                            &M::UpdateSynRcvd2FinWait1,
@@ -320,7 +323,12 @@ void TransitionRule::InitRule(RulesType *rules) {
                RuleOnEvent(&M::CheckAck,
                            &M::UpdateSynSent2Estab,
                            &M::UpdateEmpty,
-                           send_ack, send_rst))
+                           [send_ack, connected](
+                               TcpInternalInterface *internal){
+                             send_ack(internal);
+                             connected(internal);
+                           },
+                           send_rst))
       .AddRule(Event::kRstRecv, rule_reset);
 
   transition_rules.emplace_back(State::kEstab, default_rule);

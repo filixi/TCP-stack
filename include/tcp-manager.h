@@ -65,8 +65,11 @@ class TcpManager {
     auto internal = NewInternal(header.DestinationPort(), header.SourcePort());
     internal->ReceivePacket(std::move(packet));
     
-    if (internal->GetState() != State::kClosed)
+    if (internal->GetState() != State::kClosed) {
       incomming_connections_[id].push_back(internal->Id());
+      tcp_internals_[id]->NotifyOnNewConnection(
+          incomming_connections_[id].size());
+    }
   }
 
   int CloseInternal(uint64_t id, const std::lock_guard<TcpManager> &) {

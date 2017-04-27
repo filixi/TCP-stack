@@ -4,6 +4,17 @@
 
 namespace tcp_simulator {
 
+TcpInternal::TcpInternal(uint64_t id, TcpManager &manager, uint16_t host_port,
+            uint16_t peer_port)
+    : id_(id), tcp_manager_(manager), host_port_(host_port),
+      peer_port_(peer_port) {
+  connected_.second = false;
+  data_for_reading_.second = 0;
+  new_connection_.second = 0;
+}
+
+TcpInternal::~TcpInternal() {}
+
 std::list<std::shared_ptr<NetworkPacket> >
 TcpInternal::GetPacketsForSending() {
   std::list<std::shared_ptr<NetworkPacket> > result;
@@ -74,13 +85,21 @@ void TcpInternal::ReceivePacket(TcpPacket packet) {
     std::cerr << "A packet is added to ReadBuffer" << std::endl;
     buffer_.AddToReadBuffer(std::move(packet));
     unsequenced_packets_.erase(ite);
+    NotifyOnReceivingMessage();
   }
   
   std::cerr << "#" << id_ << state_;
 }
 
 TcpSocket TcpInternal::SocketAcceptConnection() {
+  std::unique_lock<TcpManager> lock(tcp_manager_);
+    new_connection_.first.wait(lock, [this](){
+          return new_connection_.second > 0;
+        });
+  lock.unlock();
+  
   std::lock_guard<TcpManager> guard(tcp_manager_);
+  --new_connection_.second;
   return tcp_manager_.AcceptConnection(this, guard);
 }
 

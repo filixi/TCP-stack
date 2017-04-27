@@ -1,6 +1,7 @@
 #ifndef _TCP_INTERNAL_H_
 #define _TCP_INTERNAL_H_
 
+#include <condition_variable>
 #include <iostream>
 #include <list>
 #include <map>
@@ -21,15 +22,15 @@ class TcpInternal : public TcpInternalInterface {
   friend class TcpManager;
   
   TcpInternal(uint64_t id, TcpManager &manager, uint16_t host_port,
-              uint16_t peer_port)
-      : id_(id), tcp_manager_(manager), host_port_(host_port),
-        peer_port_(peer_port) {}
+              uint16_t peer_port);
   
   TcpInternal(const TcpInternal &) = delete;
   TcpInternal(TcpInternal &&) = delete;
   
   TcpInternal &operator=(const TcpInternal &) = delete;
   TcpInternal &operator=(TcpInternal &&) = delete;
+  
+  ~TcpInternal();
   
   // Api for Socket
   TcpSocket SocketAcceptConnection();
@@ -39,8 +40,13 @@ class TcpInternal : public TcpInternalInterface {
     return Listen(port, guard);
   }
   void SocketConnect(uint16_t port, uint32_t seq, uint16_t window) {
-    std::lock_guard<TcpManager> guard(tcp_manager_);
-    Connect(port, seq, window, guard);
+    {
+      std::lock_guard<TcpManager> guard(tcp_manager_);
+      Connect(port, seq, window, guard);
+    }
+    
+    std::unique_lock<TcpManager> lock(tcp_manager_);
+    connected_.first.wait(lock, [this](){return connected_.second;});
   }
   
   void SocketCloseConnection() {
@@ -49,7 +55,14 @@ class TcpInternal : public TcpInternalInterface {
   }
   
   std::list<TcpPacket> SocketGetReceivedPackets() {
+    std::unique_lock<TcpManager> lock(tcp_manager_);
+    data_for_reading_.first.wait(lock, [this](){
+          return data_for_reading_.second > 0;
+        });
+    lock.unlock();
+    
     std::lock_guard<TcpManager> guard(tcp_manager_);
+    data_for_reading_.second = 0;
     return buffer_.GetReadPackets();
   }
   
@@ -182,6 +195,21 @@ class TcpInternal : public TcpInternalInterface {
   
   void Reset() override;
   
+  void NotifyOnConnected() override {
+    connected_.second = true;
+    connected_.first.notify_one();
+  }
+  
+  void NotifyOnReceivingMessage() override {
+    ++data_for_reading_.second;
+    data_for_reading_.first.notify_one();
+  }
+  
+  void NotifyOnNewConnection(size_t count) override {
+    new_connection_.second = count;
+    new_connection_.first.notify_one();
+  }
+
   uint64_t id_;
   
   TcpBuffer buffer_;
@@ -195,6 +223,11 @@ class TcpInternal : public TcpInternalInterface {
   uint16_t peer_port_;
   
   std::map<uint32_t, TcpPacket> unsequenced_packets_;
+  
+  // notification
+  std::pair<std::condition_variable_any, bool> connected_;
+  std::pair<std::condition_variable_any, size_t> data_for_reading_;
+  std::pair<std::condition_variable_any, size_t> new_connection_;
 };
 
 } // namespace tcp_simulator

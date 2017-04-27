@@ -2,6 +2,8 @@
 #include "include/tcp-socket.h"
 #include "include/network.h"
 
+#include <cassert>
+
 #include <iostream>
 
 using namespace tcp_simulator;
@@ -18,24 +20,22 @@ int main() {
   sock1.Listen(15);
   sock2.Connect(15);
 
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  
   auto sock3 = sock1.Accept();
   std::cerr << "Accepted" << std::endl;
-  
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  char buff[] = "abc";
+
+  char buff[] = "\
+I found out that the short message - abc - is very hard to be \
+found among all those annoying logs!!!";
+
   sock3.Write(std::begin(buff), std::end(buff));
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  
+
   auto data = sock2.Read();
-  if (data.second)
-    std::cout.write(data.first.front().GetData().first,
-                    data.first.front().Length());
+  assert(data.second);
   
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+  std::cerr << data.first.front().GetData().first << std::endl;
+
   sock2.Close();
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+
   service1->join();
   service2->join();
   
