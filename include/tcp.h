@@ -44,22 +44,22 @@ class TcpInternal : public TcpInternalInterface {
     auto result = state_.FinSent();
     assert(result);
     SendFin();
-    unsequenced_packages_.clear();
+    unsequenced_packets_.clear();
   }
   
-  std::list<TcpPackage> GetReceivedPackages() {
-    return buffer_.GetReadPackages();
+  std::list<TcpPacket> GetReceivedPackets() {
+    return buffer_.GetReadPackets();
   }
   
-  int AddPackageForSending(TcpPackage package);
-  int AddPackageForSending(const char *begin, const char *end);
+  int AddPacketForSending(TcpPacket packet);
+  int AddPacketForSending(const char *begin, const char *end);
   
   // Api for TcpManager/StateMachine
   
-  std::list<std::shared_ptr<NetworkPackage> > GetPackagesForSending();
-  std::list<std::shared_ptr<NetworkPackage> > GetPackagesForResending();
+  std::list<std::shared_ptr<NetworkPacket> > GetPacketsForSending();
+  std::list<std::shared_ptr<NetworkPacket> > GetPacketsForResending();
   
-  void ReceivePackage(TcpPackage package);
+  void ReceivePacket(TcpPacket packet);
   
   auto HostPort() {
     return host_port_;
@@ -71,12 +71,12 @@ class TcpInternal : public TcpInternalInterface {
   
   void Reset() override;
   
-  auto GetRstPackage() {
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetRst(true);
-    package.GetHeader().SetAck(true);
+  auto GetRstPacket() {
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetRst(true);
+    packet.GetHeader().SetAck(true);
 
-    return package;
+    return packet;
   }
   
   State GetState() {
@@ -87,62 +87,66 @@ class TcpInternal : public TcpInternalInterface {
   // callback action
   void SendAck() override {
     std::cerr << __func__ << std::endl;
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetAck(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetAck(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   
   void SendConditionAck() override {
     std::cerr << __func__ << std::endl;
-    if (state_.GetLastPackageSize() == 0)
+    if (state_.GetLastPacketSize() == 0)
       return ;
     
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetAck(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetAck(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   
   void SendSyn() override {
     std::cerr << __func__ << std::endl;
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetSyn(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetSyn(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   void SendSynAck() override {
     std::cerr << __func__ << std::endl;
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetSyn(true);
-    package.GetHeader().SetAck(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetSyn(true);
+    packet.GetHeader().SetAck(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   
   void SendFin() override {
     std::cerr << __func__ << std::endl;
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetFin(true);
-    package.GetHeader().SetAck(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetFin(true);
+    packet.GetHeader().SetAck(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   
   void SendRst() override {
     std::cerr << __func__ << std::endl;
-    TcpPackage package(nullptr, nullptr);
-    package.GetHeader().SetRst(true);
-    package.GetHeader().SetAck(true);
+    TcpPacket packet(nullptr, nullptr);
+    packet.GetHeader().SetRst(true);
+    packet.GetHeader().SetAck(true);
 
-    AddPackageForSending(std::move(package));
+    AddPacketForSending(std::move(packet));
   }
   
   void Accept() override {
     std::cerr << __func__ << std::endl;
-    unsequenced_packages_.emplace(
-        current_package_.GetHeader().SequenceNumber(),
-        std::move(current_package_));
+    if(state_ != State::kEstab || current_packet_.Length() == 0)
+      return ;
+    
+    std::cerr << "Adding packet to unsequenced" << std::endl;
+    unsequenced_packets_.emplace(
+        current_packet_.GetHeader().SequenceNumber(),
+        std::move(current_packet_));
   }
   
   void Discard() override {
@@ -163,12 +167,12 @@ class TcpInternal : public TcpInternalInterface {
   
   TcpManager *manager_;
   
-  TcpPackage current_package_;
+  TcpPacket current_packet_;
 
   uint16_t host_port_;
   uint16_t peer_port_;
   
-  std::map<uint32_t, TcpPackage> unsequenced_packages_;
+  std::map<uint32_t, TcpPacket> unsequenced_packets_;
 };
 
 class TcpSocket {
@@ -185,15 +189,15 @@ class TcpSocket {
   void Connect(uint16_t port);
   
   auto Read() {
-    using PackagesType = std::list<TcpPackage>;
+    using PacketsType = std::list<TcpPacket>;
     if (internal_.expired())
-      return std::make_pair(false, PackagesType{});
-    return std::make_pair(true, internal_.lock()->GetReceivedPackages());
+      return std::make_pair(PacketsType{}, false);
+    return std::make_pair(internal_.lock()->GetReceivedPackets(), true);
   }
   
   // haven't
   int Write(const char *first, const char *last) {
-    return internal_.lock()->AddPackageForSending(first, last);;
+    return internal_.lock()->AddPacketForSending(first, last);;
   }
   
   int Close() {

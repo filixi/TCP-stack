@@ -23,8 +23,19 @@ int main() {
   auto sock3 = sock1.Accept();
   std::cerr << "Accepted" << std::endl;
   
-  sock2.Close();
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  char buff[] = "abc";
+  sock3.Write(std::begin(buff), std::end(buff));
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   
+  auto data = sock2.Read();
+  if (data.second)
+    std::cout.write(data.first.front().GetData().first,
+                    data.first.front().Length());
+  
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  sock2.Close();
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   service1->join();
   service2->join();
   

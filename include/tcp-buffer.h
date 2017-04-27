@@ -14,17 +14,17 @@
 
 namespace tcp_simulator {
 
-class NetworkPackage {
+class NetworkPacket {
  public:
-  static auto NewPackage(size_t size) {
-    return std::shared_ptr<NetworkPackage>(new NetworkPackage(size));
+  static auto NewPacket(size_t size) {
+    return std::shared_ptr<NetworkPacket>(new NetworkPacket(size));
   }
   
-  static auto NewPackage(const char *begin, const char *end) {
+  static auto NewPacket(const char *begin, const char *end) {
     assert(begin <= end);
-    auto package = NewPackage(static_cast<size_t>(end - begin));
-    std::copy(begin, end, package->begin_);
-    return package;
+    auto packet = NewPacket(static_cast<size_t>(end - begin));
+    std::copy(begin, end, packet->begin_);
+    return packet;
   }
   
   std::pair<char *, char *> GetBuffer() {
@@ -35,20 +35,20 @@ class NetworkPackage {
     return static_cast<size_t>(end_ - begin_);
   }
   
-  ~NetworkPackage() {
+  ~NetworkPacket() {
     delete[] begin_;
   }
   
  private:
-  NetworkPackage() = default;
+  NetworkPacket() = default;
   
-  NetworkPackage(size_t size) : begin_(new char[size]), end_(begin_+size) {}
+  NetworkPacket(size_t size) : begin_(new char[size]), end_(begin_+size) {}
   
-  NetworkPackage(const NetworkPackage &) = delete;
-  NetworkPackage(NetworkPackage &&) = delete;
+  NetworkPacket(const NetworkPacket &) = delete;
+  NetworkPacket(NetworkPacket &&) = delete;
 
-  NetworkPackage &operator=(const NetworkPackage &) = delete;
-  NetworkPackage &operator=(NetworkPackage &&) = delete;
+  NetworkPacket &operator=(const NetworkPacket &) = delete;
+  NetworkPacket &operator=(NetworkPacket &&) = delete;
   
   char *begin_ = nullptr;
   char *end_ = nullptr;
@@ -203,66 +203,66 @@ class TcpHeader {
   Field<5> field_;
 };
 
-// only adapt a NetworkPackage
-class TcpPackage {
+// only adapt a NetworkPacket
+class TcpPacket {
  public:
-  // Consturct an empty TcpPackage
-  TcpPackage() = default;
+  // Consturct an empty TcpPacket
+  TcpPacket() = default;
   
-  // Adapt a NetworkPackage
-  explicit TcpPackage(std::shared_ptr<NetworkPackage> package)
-      : network_package_(package) {
-    if (package->Length() < sizeof(TcpHeader))
-      throw std::runtime_error("TcpPackage length error");
+  // Adapt a NetworkPacket
+  explicit TcpPacket(std::shared_ptr<NetworkPacket> packet)
+      : network_packet_(packet) {
+    if (packet->Length() < sizeof(TcpHeader))
+      throw std::runtime_error("TcpPacket length error");
   }
       
-  // Consturct a TcpPackage from a copy of a TcpHeader and a range of memory
-  TcpPackage(const TcpHeader &header, const char *first, const char *last) {
-    network_package_ = NetworkPackage::NewPackage(
+  // Consturct a TcpPacket from a copy of a TcpHeader and a range of memory
+  TcpPacket(const TcpHeader &header, const char *first, const char *last) {
+    network_packet_ = NetworkPacket::NewPacket(
       static_cast<size_t>(last-first) + sizeof(TcpHeader));
     std::copy(reinterpret_cast<const char *>(&header), 
               reinterpret_cast<const char *>(&header+1),
-              network_package_->GetBuffer().first);
+              network_packet_->GetBuffer().first);
     std::copy(first, last,
-              network_package_->GetBuffer().first+sizeof(TcpHeader));
+              network_packet_->GetBuffer().first+sizeof(TcpHeader));
   }
   
-  // Consturct a TcpPackage from a copy of a range of memory and default header
-  TcpPackage(const char *first, const char *last) {
-    network_package_ = NetworkPackage::NewPackage(
+  // Consturct a TcpPacket from a copy of a range of memory and default header
+  TcpPacket(const char *first, const char *last) {
+    network_packet_ = NetworkPacket::NewPacket(
       static_cast<size_t>(last-first) + sizeof(TcpHeader));
-    new(network_package_->GetBuffer().first) TcpHeader();
+    new(network_packet_->GetBuffer().first) TcpHeader();
     std::copy(first, last,
-              network_package_->GetBuffer().first+sizeof(TcpHeader));
+              network_packet_->GetBuffer().first+sizeof(TcpHeader));
   }
   
-  TcpPackage(const TcpPackage &) = delete;
-  TcpPackage(TcpPackage &&) = default;
+  TcpPacket(const TcpPacket &) = delete;
+  TcpPacket(TcpPacket &&) = default;
   
-  TcpPackage &operator=(const TcpPackage &) = delete;
-  TcpPackage &operator=(TcpPackage &&) = default;
+  TcpPacket &operator=(const TcpPacket &) = delete;
+  TcpPacket &operator=(TcpPacket &&) = default;
   
   std::pair<char *, char *> GetData() {
     char *begin, *end;
-    std::tie(begin, end) = network_package_->GetBuffer();
+    std::tie(begin, end) = network_packet_->GetBuffer();
     return {begin + sizeof(TcpHeader), end};
   }
   
-  explicit operator std::shared_ptr<NetworkPackage>() {
-    return network_package_;
+  explicit operator std::shared_ptr<NetworkPacket>() {
+    return network_packet_;
   }
   
   TcpHeader &GetHeader() {
     return const_cast<TcpHeader &>(
-        static_cast<const TcpPackage *>(this)->GetHeader());
+        static_cast<const TcpPacket *>(this)->GetHeader());
   }
   const TcpHeader &GetHeader() const {
     return reinterpret_cast<const TcpHeader &>(
-        *network_package_->GetBuffer().first);
+        *network_packet_->GetBuffer().first);
   }
   
   auto TotalLength() const {
-    return network_package_->Length();
+    return network_packet_->Length();
   }
   
   size_t Length() const {
@@ -277,16 +277,16 @@ class TcpPackage {
   uint16_t CalculateChecksum();
   
  private:
-  auto GetNetworkPackage() {
-    return network_package_;
+  auto GetNetworkPacket() {
+    return network_packet_;
   }
   
-  std::shared_ptr<NetworkPackage> network_package_;
+  std::shared_ptr<NetworkPacket> network_packet_;
 };
 
 class TcpBuffer {
  public:
-  TcpPackage *GetFrontWritePackage() {
+  TcpPacket *GetFrontWritePacket() {
     if (write_buffer_.empty())
       return nullptr;
     return &write_buffer_.front();
@@ -294,50 +294,50 @@ class TcpBuffer {
   
   void MoveFrontWriteToUnack() {
     if (!write_buffer_.empty()) {
-      unack_packages_.emplace_back(std::move(write_buffer_.front()));
+      unack_packets_.emplace_back(std::move(write_buffer_.front()));
       write_buffer_.pop_front();
     }
   }
   
-  auto GetReadPackages() {
-    std::list<TcpPackage> packages(
+  auto GetReadPackets() {
+    std::list<TcpPacket> packets(
         std::make_move_iterator(read_buffer_.begin()),
         std::make_move_iterator(read_buffer_.end()));
     read_buffer_.clear();
-    return packages;
+    return packets;
   }
   
   template <class UnaryFunction>
-  auto GetPackagesForResending(UnaryFunction fn) {
-    std::list<std::shared_ptr<NetworkPackage> > packages;
-    std::transform(unack_packages_.begin(), unack_packages_.end(),
-                   std::back_inserter(packages),
+  auto GetPacketsForResending(UnaryFunction fn) {
+    std::list<std::shared_ptr<NetworkPacket> > packets;
+    std::transform(unack_packets_.begin(), unack_packets_.end(),
+                   std::back_inserter(packets),
                    [&fn](auto &x){
                      fn(x);
-                     return static_cast<std::shared_ptr<NetworkPackage> >(x);
+                     return static_cast<std::shared_ptr<NetworkPacket> >(x);
                    });
     read_buffer_.clear();
-    return packages;
+    return packets;
   }
   
-  void AddToReadBuffer(TcpPackage ptr) {
+  void AddToReadBuffer(TcpPacket ptr) {
     std::cerr << __func__ << std::endl;
     read_buffer_.push_back(std::move(ptr));
   }
   
-  void AddToWriteBuffer(TcpPackage ptr) {
+  void AddToWriteBuffer(TcpPacket ptr) {
     std::cerr << __func__ << std::endl;
     write_buffer_.push_back(std::move(ptr));
   }
   
   int Ack(uint32_t acknowledge_number) {
     std::cerr << __func__  << " Buffer Called - ";
-    while (!unack_packages_.empty() &&
+    while (!unack_packets_.empty() &&
            acknowledge_number >
-              unack_packages_.front().GetHeader().SequenceNumber() + 
-                  unack_packages_.front().Length()) {
+              unack_packets_.front().GetHeader().SequenceNumber() + 
+                  unack_packets_.front().Length()) {
       std::cerr << __func__ << " ";
-      unack_packages_.pop_front();
+      unack_packets_.pop_front();
     }
     std::cerr << std::endl;
     return 0;
@@ -346,21 +346,21 @@ class TcpBuffer {
   void Clear() {
     read_buffer_.clear();
     write_buffer_.clear();
-    unack_packages_.clear();
+    unack_packets_.clear();
   }
   
  private:
-  std::list<TcpPackage> read_buffer_;
-  std::list<TcpPackage> write_buffer_;
+  std::list<TcpPacket> read_buffer_;
+  std::list<TcpPacket> write_buffer_;
   
-  std::list<TcpPackage> unack_packages_;
+  std::list<TcpPacket> unack_packets_;
 };
 
 std::ostream &operator<<(std::ostream &o,
-                         const std::shared_ptr<NetworkPackage> &ptr);
+                         const std::shared_ptr<NetworkPacket> &ptr);
 
 std::ostream &operator<<(std::ostream &o,
-                         const TcpPackage &package);
+                         const TcpPacket &packet);
 
 } // namespace tcp_simulator
 

@@ -106,10 +106,10 @@ class HeaderFactory {
   HeaderFactory() = default;
   virtual ~HeaderFactory() = default;
   
-  TcpPackage RstHeader(const TcpPackage &source) {
-    TcpPackage package(nullptr, nullptr);
+  TcpPacket RstHeader(const TcpPacket &source) {
+    TcpPacket packet(nullptr, nullptr);
     const auto &source_header = source.GetHeader();
-    auto &header = package.GetHeader();
+    auto &header = packet.GetHeader();
     
     header.SourcePort() = source_header.DestinationPort();
     header.DestinationPort() = source_header.SourcePort();
@@ -118,8 +118,8 @@ class HeaderFactory {
     header.SetRst(true);
     
     header.Checksum() = 0;
-    header.Checksum() = package.CalculateChecksum();
-    return package;
+    header.Checksum() = packet.CalculateChecksum();
+    return packet;
   }
   
  private:
@@ -142,54 +142,6 @@ class TcpInternalInterface {
   virtual ~TcpInternalInterface() = default;
 };
 
-class PuppyTcpInternal : public TcpInternalInterface {
- public:
-  void SendAck() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void SendConditionAck() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void SendSyn() override {
-    std::cerr << __func__ << std::endl;
-  }
-  void SendSynAck() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void SendFin() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void SendRst() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void Accept() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void Discard() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void Close() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void NewConnection() override {
-    std::cerr << __func__ << std::endl;
-  }
-  
-  void Reset() override {
-    std::cerr << __func__ << std::endl;
-  }
-};
-
-
-
 class TcpStateMachine;
 template <class CharT, class Traits>
 std::basic_ostream<CharT, Traits> &operator<<(
@@ -204,35 +156,27 @@ class TcpStateMachine {
   
   TcpStateMachine();
   
-  std::function<void(TcpInternalInterface *)> OnReceivePackage(
+  // Update state on receving packet
+  std::function<void(TcpInternalInterface *)> OnReceivePacket(
       const TcpHeader *header, uint16_t size);
   
-  bool OnSequencePackage(TcpHeader &header, uint16_t size) {
-    if (header.SequenceNumber() == host_last_ack_) {
-      host_last_ack_ += size;
-      return true;
-    }
-    return false;
+  // Update state on sending packet
+  bool FinSent();
+  bool SynSent(uint32_t seq, uint16_t window);
+
+  // Update state on time out
+  void TimeOut() {}
+  
+  // Update state on listenning
+  bool Listen() {
+    if (state_ != State::kClosed)
+      return false;
+    SetState(0, State::kListen, Stage::kHandShake);
+    return true;
   }
   
-  void PrepareHeader(TcpHeader &header, uint16_t size) const {
-    std::cerr << __func__ << std::endl;
-    header.Window() = host_window_;
-    
-    if (header.Syn()) {
-      header.SequenceNumber() = host_initial_seq_;
-    } else if (header.Fin()) {
-      header.SetAck(true);
-      header.SequenceNumber() = host_next_seq_;
-    } else if (header.Rst()) {
-      assert(false);
-    } else {
-      header.SetAck(true);
-    }
-    
-    if (header.Ack())
-      header.AcknowledgementNumber() = host_last_ack_;
-  }
+  // functions for preparing packet's header
+  void PrepareHeader(TcpHeader &header, uint16_t size) const;
   
   void PrepareResendHeader(TcpHeader &header, uint16_t) const {
     std::cerr << __func__;
@@ -241,53 +185,26 @@ class TcpStateMachine {
     header.Window() = host_window_;
   }
   
-  bool FinSent() {
-    std::cerr << "Send Fin" << std::endl;
-    if (state_ == State::kSynRcvd) {
-      std::cerr << "kSynRcvd" << std::endl;
-      state_ = State::kFinWait1;
-      stage_ = Stage::kClosing;
-    } else if (state_ == State::kEstab) {
-      std::cerr << "kEstab" << std::endl;
-      state_ = State::kFinWait1;
-      stage_ = Stage::kClosing;
-    } else if (state_ == State::kCloseWait) {
-      std::cerr << "kCloseWait" << std::endl;
-      state_ = State::kLastAck;
-      stage_ = Stage::kClosing;
-    } else {
-      std::cerr << "Error" << std::endl;
-      return false;
-    }
+  std::pair<uint32_t, bool> NextSequenceNumber(uint16_t size) {
+    if (host_next_seq_ + size > peer_last_ack_ + peer_window_)
+      return {0, false};
     
-    ++host_next_seq_;
-    return true;
+    host_next_seq_ += size;
+    return {host_next_seq_-size, true};
   }
   
-  bool SynSent(uint32_t seq, uint16_t window) {
-    if (state_ == State::kClosed) {
-      host_initial_seq_ = seq;
-      host_next_seq_ = seq+1;
-      host_window_ = window;
-      
-      peer_last_ack_ = host_initial_seq_;
-      peer_window_ = 1;
-      
-      state_ = State::kSynSent;
-      stage_ = Stage::kHandShake;
+  // sequence out of order packets
+  bool OnSequencePacket(TcpHeader &header, uint16_t size) {
+    std::cerr << "SequenceNumber:" << header.SequenceNumber() << " "
+              << "HostLastAck:" << host_last_ack_ << std::endl;
+    if (header.SequenceNumber() == host_last_ack_) {
+      host_last_ack_ += size;
       return true;
     }
-    
     return false;
   }
   
-  bool Listen() {
-    if (state_ != State::kClosed)
-      return false;
-    SetState(0, State::kListen, Stage::kHandShake);
-    return true;
-  }
-  
+  // member access
   Stage GetStage() const {
     return stage_;
   }
@@ -308,35 +225,7 @@ class TcpStateMachine {
     state_ = state;
     stage_ = stage;
   }
-  
-  static Event ParseEvent(const TcpHeader *peer_header) {
-    if (peer_header->Rst())
-      return Event::kRstRecv;
-    
-    if (peer_header->Fin())
-      return Event::kFinRecv;
-    
-    if (peer_header->Syn()) {
-      if (peer_header->Ack())
-        return Event::kSynAckRecv;
-      else
-        return Event::kSynRecv;
-    }
-    
-    if (peer_header->Ack())
-      return Event::kAckRecv;
-    
-    return Event::kNone;
-  }
-  
-  std::pair<uint32_t, bool> GetSequenceNumber(uint16_t size) {
-    if (host_next_seq_ + size > peer_last_ack_ + peer_window_)
-      return {0, false};
-    
-    host_next_seq_ += size;
-    return {host_next_seq_-size, true};
-  }
-  
+
   auto GetPeerLastAck() const {
     return peer_last_ack_;
   }
@@ -356,8 +245,8 @@ class TcpStateMachine {
     return host_window_;
   }
   
-  auto GetLastPackageSize() const {
-    return last_package_size_;
+  auto GetLastPacketSize() const {
+    return size_;
   }
   
   auto GetInitialSequenceNumber() const {
@@ -365,6 +254,7 @@ class TcpStateMachine {
   }
   
  private:
+  // header seq/ack check
   bool CheckSeq() const {
     std::cerr << __func__ << header_->SequenceNumber() << " ";
     if (header_->SequenceNumber() <= peer_initial_seq_)
@@ -388,7 +278,7 @@ class TcpStateMachine {
   }
   
   bool FullCheck() const {
-    return CheckSeq() + CheckAck();
+    return CheckSeq() && CheckAck();
   }
   
   bool FinAckCheck() const {
@@ -402,6 +292,7 @@ class TcpStateMachine {
     return true;
   }
   
+  // functions for updating state
   void FullUpdate() {
     peer_last_ack_ = std::max(header_->AcknowledgementNumber(),
         peer_last_ack_);
@@ -413,9 +304,7 @@ class TcpStateMachine {
     host_last_ack_ = seq + 1;
   }
   
-  void UpdateEmpty() {
-    
-  }
+  void UpdateEmpty() {}
 
   void UpdateClosed2SynRcvd() {
     InitPeerInitialSeq(header_->SequenceNumber());
@@ -518,9 +407,11 @@ class TcpStateMachine {
     stage_ = Stage::kClosed;
   }
   
+  // header in processing
   const TcpHeader *header_ = nullptr;
   uint16_t size_ = 0;
   
+  // State
   State state_ = State::kClosed;
   Stage stage_ = Stage::kClosed;
   
@@ -533,8 +424,6 @@ class TcpStateMachine {
   uint32_t host_last_ack_ = 0;
   uint16_t host_window_ = 4096;
   
-  uint16_t last_package_size_ = 0;
-
   static std::vector<std::pair<State, RulesOnState> > transition_rules_;
 };
 

@@ -4,76 +4,81 @@
 
 namespace tcp_simulator {
 
-std::list<std::shared_ptr<NetworkPackage> >
-TcpInternal::GetPackagesForSending() {
+std::list<std::shared_ptr<NetworkPacket> >
+TcpInternal::GetPacketsForSending() {
   
-  std::list<std::shared_ptr<NetworkPackage> > result;
+  std::list<std::shared_ptr<NetworkPacket> > result;
   for (;;) {
-    auto package = buffer_.GetFrontWritePackage();
-    if (package == nullptr)
+    auto packet = buffer_.GetFrontWritePacket();
+    if (packet == nullptr)
       break;
     
     std::cerr << __func__ << " @ ";
-    std::cerr << "GetSeq" << package->Length() << " ";
-    auto sequence_number = state_.GetSequenceNumber(
-        static_cast<uint16_t>(package->Length()));
+    std::cerr << "GetSeq" << packet->Length() << " ";
+    auto sequence_number = state_.NextSequenceNumber(
+        static_cast<uint16_t>(packet->Length()));
     if (sequence_number.second == false)
       break;
-    package->GetHeader().SequenceNumber() = sequence_number.first;
+    std::cerr << "Seq for sending:" << sequence_number.first << std::endl;
+    packet->GetHeader().SequenceNumber() = sequence_number.first;
     
     std::cerr << "Psh ";
     std::cerr << std::endl;
-    state_.PrepareHeader(package->GetHeader(), package->Length());
-    package->GetHeader().Checksum() = 0;
-    package->GetHeader().Checksum() = package->CalculateChecksum();
-    result.emplace_back(static_cast<std::shared_ptr<NetworkPackage> >(
-        *package));
+    state_.PrepareHeader(packet->GetHeader(), packet->Length());
+    packet->GetHeader().Checksum() = 0;
+    packet->GetHeader().Checksum() = packet->CalculateChecksum();
+    result.emplace_back(static_cast<std::shared_ptr<NetworkPacket> >(
+        *packet));
     buffer_.MoveFrontWriteToUnack();
   }
   
   return result;
 }
 
-std::list<std::shared_ptr<NetworkPackage> >
-TcpInternal::GetPackagesForResending() {
-  return buffer_.GetPackagesForResending(
-      [this](TcpPackage &package) {
-        state_.PrepareResendHeader(package.GetHeader(), 0);
-        package.GetHeader().Checksum() = 0;
-        package.GetHeader().Checksum() = package.CalculateChecksum();
+std::list<std::shared_ptr<NetworkPacket> >
+TcpInternal::GetPacketsForResending() {
+  return buffer_.GetPacketsForResending(
+      [this](TcpPacket &packet) {
+        state_.PrepareResendHeader(packet.GetHeader(), 0);
+        packet.GetHeader().Checksum() = 0;
+        packet.GetHeader().Checksum() = packet.CalculateChecksum();
       });
 }
   
-int TcpInternal::AddPackageForSending(TcpPackage package) {
-  package.GetHeader().SourcePort() = host_port_;
-  package.GetHeader().DestinationPort() = peer_port_;
-  buffer_.AddToWriteBuffer(std::move(package));
+int TcpInternal::AddPacketForSending(TcpPacket packet) {
+  packet.GetHeader().SourcePort() = host_port_;
+  packet.GetHeader().DestinationPort() = peer_port_;
+  buffer_.AddToWriteBuffer(std::move(packet));
   return 0;
 }
 
-int TcpInternal::AddPackageForSending(const char *begin, const char *end) {
-  return AddPackageForSending(TcpPackage(begin, end));
+int TcpInternal::AddPacketForSending(const char *begin, const char *end) {
+  return AddPacketForSending(TcpPacket(begin, end));
 }
 
-void TcpInternal::ReceivePackage(TcpPackage package) {
-  if (package.ValidByChecksum() == false) {
+void TcpInternal::ReceivePacket(TcpPacket packet) {
+  if (packet.ValidByChecksum() == false) {
     std::cerr << "Checksum failed" << std::endl;
     Discard();
     return ;
   }
-  current_package_ = std::move(package);
-  auto size = current_package_.Length();
+  current_packet_ = std::move(packet);
+  auto size = current_packet_.Length();
   
-  auto react = state_.OnReceivePackage(&current_package_.GetHeader(), size);
+  auto react = state_.OnReceivePacket(&current_packet_.GetHeader(), size);
+  std::cerr << "Reacting" << std::endl;
   react(this);
   
-  while (!unsequenced_packages_.empty()) {
-    auto ite = unsequenced_packages_.begin();
-    auto &package = ite->second;
-    if (!state_.OnSequencePackage(package.GetHeader(), package.Length()))
+  std::cerr << "Checking unsequenced packets" << std::endl;
+  while (!unsequenced_packets_.empty()) {
+    std::cerr << "Check" << std::endl;
+    auto ite = unsequenced_packets_.begin();
+    auto &packet = ite->second;
+    if (!state_.OnSequencePacket(packet.GetHeader(), packet.Length()))
       break;
-    buffer_.AddToReadBuffer(std::move(package));
-    unsequenced_packages_.erase(ite);
+    std::cerr << "A packet is added to ReadBuffer" << std::endl;
+    buffer_.AddToReadBuffer(std::move(packet));
+    unsequenced_packets_.erase(ite);
   }
   
   std::cerr << "#" << id_ << state_;
@@ -92,7 +97,7 @@ TcpSocket TcpInternal::AcceptConnection() {
 void TcpInternal::Reset() {
   std::cerr << __func__ << std::endl;
   state_.SetState(0, State::kClosed, Stage::kClosed);
-  unsequenced_packages_.clear();
+  unsequenced_packets_.clear();
   buffer_.Clear();
   host_port_ = peer_port_ = 0;
   
@@ -101,7 +106,7 @@ void TcpInternal::Reset() {
 
 void TcpInternal::NewConnection() {
   std::cerr << __func__ << std::endl;
-  manager_->NewConnection(id_, std::move(current_package_));
+  manager_->NewConnection(id_, std::move(current_packet_));
 }
 
 void TcpInternal::Connect(uint16_t port, uint32_t seq, uint16_t window) {

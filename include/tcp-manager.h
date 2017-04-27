@@ -61,23 +61,23 @@ class TcpManager {
     return {};
   }
 
-  void NewConnection(uint64_t id, TcpPackage package) {
-    auto &header = package.GetHeader();
+  void NewConnection(uint64_t id, TcpPacket packet) {
+    auto &header = packet.GetHeader();
     auto internal = NewInternal(header.DestinationPort(), header.SourcePort());
-    internal->ReceivePackage(std::move(package));
+    internal->ReceivePacket(std::move(packet));
     
     if (internal->GetState() != State::kClosed)
       incomming_connections_[id].push_back(internal->Id());
   }
 
-  void SendPackage(std::shared_ptr<NetworkPackage> package) {
-    packages_for_sending_.emplace_back(package);
+  void SendPacket(std::shared_ptr<NetworkPacket> packet) {
+    packets_for_sending_.emplace_back(packet);
   }
   
   template <class Container>
-  void SendPackages(const Container &container) {
-    for (const auto &package : container)
-      SendPackage(static_cast<std::shared_ptr<NetworkPackage>>(package));
+  void SendPackets(const Container &container) {
+    for (const auto &packet : container)
+      SendPacket(static_cast<std::shared_ptr<NetworkPacket>>(packet));
   }
 
   auto GetInternal(uint16_t host_port, uint16_t peer_port) {
@@ -90,12 +90,12 @@ class TcpManager {
   
   int CloseInternal(uint64_t id);
   
-  void Multiplexing(std::shared_ptr<NetworkPackage> package);
+  void Multiplexing(std::shared_ptr<NetworkPacket> packet);
   
   void Interrupt() {}
   
-  void SwapPackagesForSending(
-      std::list<std::shared_ptr<NetworkPackage> > &list);
+  void SwapPacketsForSending(
+      std::list<std::shared_ptr<NetworkPacket> > &list);
   
   std::chrono::time_point<std::chrono::steady_clock> GetNextEventTime() {
     //if (!timeout_queue_.empty())
@@ -120,7 +120,7 @@ class TcpManager {
     return result.first->second;
   }
   
-  std::list<std::shared_ptr<NetworkPackage> > packages_for_sending_;
+  std::list<std::shared_ptr<NetworkPacket> > packets_for_sending_;
   
   std::map<uint64_t, std::shared_ptr<TcpInternal> > tcp_internals_;
   std::map<uint64_t, std::list<uint64_t> > incomming_connections_;

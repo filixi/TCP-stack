@@ -2,22 +2,22 @@
 
 namespace tcp_simulator {
 
-uint16_t TcpPackage::CalculateChecksum() {
+uint16_t TcpPacket::CalculateChecksum() {
   uint32_t checksum = 0;
   uint16_t * const buffer = reinterpret_cast<uint16_t *>(
-      network_package_->GetBuffer().first);
-  const auto size = network_package_->Length();
+      network_packet_->GetBuffer().first);
+  const auto size = network_packet_->Length();
   size_t i = 0;
   for (; i<size/2; ++i)
     checksum += buffer[i];
   if (size%2)
-    checksum += network_package_->GetBuffer().first[size-1];
+    checksum += network_packet_->GetBuffer().first[size-1];
 
   return static_cast<uint16_t>(~checksum);
 }
 
 std::ostream &operator<<(std::ostream &o,
-                         const std::shared_ptr<NetworkPackage> &ptr) {
+                         const std::shared_ptr<NetworkPacket> &ptr) {
   auto range = ptr->GetBuffer();
   
   int ic = 0;
@@ -35,8 +35,8 @@ std::ostream &operator<<(std::ostream &o,
 }
 
 std::ostream &operator<<(std::ostream &o,
-                         const TcpPackage &package) {
-  const auto &header = package.GetHeader();
+                         const TcpPacket &packet) {
+  const auto &header = packet.GetHeader();
   if (header.Ack())
     o << "Ack ";
   if (header.Syn())

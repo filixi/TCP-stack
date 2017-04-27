@@ -32,7 +32,7 @@ void LittleUdpSender(uint16_t port) {
 
 void NetworkService::Run(std::promise<void> running) {
   std::cerr << __func__ << std::endl;
-  std::list<std::shared_ptr<NetworkPackage> > packages_for_sending;
+  std::list<std::shared_ptr<NetworkPacket> > packets_for_sending;
   int host_socket = socket(AF_INET, SOCK_DGRAM, 0);
   if (host_socket < 0)
     throw std::runtime_error("socket errer");
@@ -66,29 +66,29 @@ void NetworkService::Run(std::promise<void> running) {
       }
         
     } else if (ret == 1) {
-      std::cerr << "Package receiving" << std::endl;
+      std::cerr << "Packet receiving" << std::endl;
       auto n = recvfrom(host_socket, buff.get(), 102400, 0,
                         nullptr, nullptr);
       if (n <= 0) {
         std::cerr << "Recvfrom error";
       } else {
-        std::cerr << "Package received" << std::endl;
-        auto package = NetworkPackage::NewPackage(buff.get(), buff.get()+n);
-        tcp_manager_.Multiplexing(package);
+        std::cerr << "Packet received" << std::endl;
+        auto packet = NetworkPacket::NewPacket(buff.get(), buff.get()+n);
+        tcp_manager_.Multiplexing(packet);
       }
     } else {
       ;
     }
     
-    tcp_manager_.SwapPackagesForSending(packages_for_sending);
-    for (auto &package : packages_for_sending) {
+    tcp_manager_.SwapPacketsForSending(packets_for_sending);
+    for (auto &packet : packets_for_sending) {
       char *begin = nullptr, *end = nullptr;
-      std::tie(begin, end) = package->GetBuffer();
+      std::tie(begin, end) = packet->GetBuffer();
       sendto(host_socket, begin, static_cast<size_t>(end-begin), 0,
              (sockaddr *)&peer_addr_, sizeof(sockaddr_in));
-      std::cerr << "Send package" << std::endl;
+      std::cerr << "Send packet" << std::endl;
     }
-    packages_for_sending.clear();
+    packets_for_sending.clear();
     
     std::cerr << std::endl;
   }

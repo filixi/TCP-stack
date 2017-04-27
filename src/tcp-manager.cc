@@ -3,28 +3,28 @@
 
 namespace tcp_simulator {
 
-void TcpManager::Multiplexing(std::shared_ptr<NetworkPackage> package) {
-  // Construct A TcpPackage
-  TcpPackage tcp_package(package);
+void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet) {
+  // Construct A TcpPacket
+  TcpPacket tcp_packet(packet);
   
   std::cerr << __func__ << std::endl;
-  std::cerr << tcp_package << std::endl;
+  std::cerr << tcp_packet << std::endl;
 
-  // find the TcpInternal according to the TcpPackage header
-  auto ite = GetInternal(tcp_package.GetHeader().DestinationPort(),
-                         tcp_package.GetHeader().SourcePort());
+  // find the TcpInternal according to the TcpPacket header
+  auto ite = GetInternal(tcp_packet.GetHeader().DestinationPort(),
+                         tcp_packet.GetHeader().SourcePort());
   
   if (ite == tcp_internals_.end()) {
     std::cerr << "searching for listenning internal" << std::endl;
-    ite = GetInternal(tcp_package.GetHeader().DestinationPort(), 0);
+    ite = GetInternal(tcp_packet.GetHeader().DestinationPort(), 0);
   }
   
-  // internal not found
+  // internal not foundf
   if (ite == tcp_internals_.end()) {
     // send RST
     std::cerr << "internal not found!" << std::endl;
-    SendPackage(static_cast<std::shared_ptr<NetworkPackage> >(
-        HeaderFactory().RstHeader(tcp_package)));
+    SendPacket(static_cast<std::shared_ptr<NetworkPacket> >(
+        HeaderFactory().RstHeader(tcp_packet)));
     return ;
   }
   
@@ -32,10 +32,10 @@ void TcpManager::Multiplexing(std::shared_ptr<NetworkPackage> package) {
 
   if (internal->GetState() == State::kListen) {
     std::cerr << "internal is listenning" << std::endl;
-    internal->ReceivePackage(std::move(tcp_package));
+    internal->ReceivePacket(std::move(tcp_packet));
   } else {
-    internal->ReceivePackage(std::move(tcp_package));
-    std::cerr << "internal has received package" << std::endl;
+    internal->ReceivePacket(std::move(tcp_packet));
+    std::cerr << "internal has received packet" << std::endl;
     if (internal->GetState() == State::kClosed) {
       
       CloseInternal(internal->Id());
@@ -45,8 +45,8 @@ void TcpManager::Multiplexing(std::shared_ptr<NetworkPackage> package) {
   }
   
   // Ask for sending
-  SendPackages(internal->GetPackagesForSending());
-  //SendPackages(internal->GetPackagesForResending());
+  SendPackets(internal->GetPacketsForSending());
+  //SendPackets(internal->GetPacketsForResending());
 
   // Add to resend queue
   timeout_queue_.emplace(
@@ -72,10 +72,10 @@ int TcpManager::CloseInternal(uint64_t id) {
       std::cerr << "Non accpeted connection removed" << std::endl;
       auto ite_connection = tcp_internals_.find(connection_id);
       assert(ite_connection != tcp_internals_.end());
-      auto package = ite_connection->second->GetRstPackage();
+      auto packet = ite_connection->second->GetRstPacket();
       ite_connection->second->Reset();
       
-      SendPackage(static_cast<std::shared_ptr<NetworkPackage>>(package));
+      SendPacket(static_cast<std::shared_ptr<NetworkPacket>>(packet));
     }
   }
   
@@ -83,14 +83,14 @@ int TcpManager::CloseInternal(uint64_t id) {
   return ret;
 }
 
-void TcpManager::SwapPackagesForSending(
-    std::list<std::shared_ptr<NetworkPackage> > &list) {
+void TcpManager::SwapPacketsForSending(
+    std::list<std::shared_ptr<NetworkPacket> > &list) {
   for (auto pair : tcp_internals_) {
     auto &internal = pair.second;
-    SendPackages(internal->GetPackagesForSending());
+    SendPackets(internal->GetPacketsForSending());
   }
   
-  packages_for_sending_.swap(list);
+  packets_for_sending_.swap(list);
 }
 
 } // namespace tcp_simulator
