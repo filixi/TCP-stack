@@ -6,7 +6,6 @@ namespace tcp_simulator {
 
 std::list<std::shared_ptr<NetworkPacket> >
 TcpInternal::GetPacketsForSending() {
-  
   std::list<std::shared_ptr<NetworkPacket> > result;
   for (;;) {
     auto packet = buffer_.GetFrontWritePacket();
@@ -44,7 +43,7 @@ TcpInternal::GetPacketsForResending() {
         packet.GetHeader().Checksum() = packet.CalculateChecksum();
       });
 }
-  
+
 int TcpInternal::AddPacketForSending(TcpPacket packet) {
   packet.GetHeader().SourcePort() = host_port_;
   packet.GetHeader().DestinationPort() = peer_port_;
@@ -80,14 +79,9 @@ void TcpInternal::ReceivePacket(TcpPacket packet) {
   std::cerr << "#" << id_ << state_;
 }
 
-int TcpInternal::CloseInternal() {
-  return tcp_manager_.CloseInternal(id_,
-      std::lock_guard<TcpManager>(tcp_manager_));
-}
-
-TcpSocket TcpInternal::AcceptConnection() {
-  return tcp_manager_.AcceptConnection(this,
-      std::lock_guard<TcpManager>(tcp_manager_));
+TcpSocket TcpInternal::SocketAcceptConnection() {
+  std::lock_guard<TcpManager> guard(tcp_manager_);
+  return tcp_manager_.AcceptConnection(this, guard);
 }
 
 void TcpInternal::Reset() {
@@ -96,8 +90,6 @@ void TcpInternal::Reset() {
   unsequenced_packets_.clear();
   buffer_.Clear();
   host_port_ = peer_port_ = 0;
-  
-  CloseInternal();
 }
 
 void TcpInternal::NewConnection() {
@@ -105,35 +97,35 @@ void TcpInternal::NewConnection() {
   tcp_manager_.NewConnection(id_, std::move(current_packet_));
 }
 
-void TcpInternal::Connect(uint16_t port, uint32_t seq, uint16_t window) {
+void TcpInternal::Connect(uint16_t port, uint32_t seq, uint16_t window,
+    const std::lock_guard<TcpManager> &guard) {
   peer_port_ = port;
   assert(host_port_ != 0 && peer_port_ != 0);
   
-  tcp_manager_.Bind(host_port_, peer_port_, id_,
-      std::lock_guard<TcpManager>(tcp_manager_));
+  tcp_manager_.Bind(host_port_, peer_port_, id_, guard);
   auto result = state_.SynSent(seq, window);
   assert(result);
   SendSyn();
 }
 
-int TcpInternal::Listen(uint16_t port) {
+int TcpInternal::Listen(uint16_t port,
+    const std::lock_guard<TcpManager> &guard) {
   assert(host_port_ != 0);
   auto result = state_.Listen();
   assert(result);
   
   host_port_ = port;
   peer_port_ = 0;
-  tcp_manager_.Bind(host_port_, peer_port_, id_,
-      std::lock_guard<TcpManager>(tcp_manager_));
+  tcp_manager_.Bind(host_port_, peer_port_, id_, guard);
   return 0;
 }
 
 TcpSocket TcpSocket::Accept() {
-  return internal_.lock()->AcceptConnection();
+  return internal_.lock()->SocketAcceptConnection();
 }
 
 void TcpSocket::Connect(uint16_t port) {
-  internal_.lock()->Connect(port, 1425, 10240);
+  internal_.lock()->SocketConnect(port, 1425, 10240);
 }
 
 } // namespace tcp_simulator

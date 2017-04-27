@@ -5,6 +5,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <utility>
 
 #include "tcp-buffer.h"
@@ -17,6 +18,8 @@ class TcpManager;
 
 class TcpInternal : public TcpInternalInterface {
  public:
+  friend class TcpManager;
+  
   TcpInternal(uint64_t id, TcpManager &manager, uint16_t host_port,
               uint16_t peer_port)
       : id_(id), tcp_manager_(manager), host_port_(host_port),
@@ -29,32 +32,33 @@ class TcpInternal : public TcpInternalInterface {
   TcpInternal &operator=(TcpInternal &&) = delete;
   
   // Api for Socket
-  int CloseInternal(); 
-  TcpSocket AcceptConnection();
-  
-  auto Id() const {
-    return id_;
+  TcpSocket SocketAcceptConnection();
+
+  int SocketListen(uint16_t port) {
+    std::lock_guard<TcpManager> guard(tcp_manager_);
+    return Listen(port, guard);
+  }
+  void SocketConnect(uint16_t port, uint32_t seq, uint16_t window) {
+    std::lock_guard<TcpManager> guard(tcp_manager_);
+    Connect(port, seq, window, guard);
   }
   
-  int Listen(uint16_t port);
-  void Connect(uint16_t port, uint32_t seq, uint16_t window);
-  
-  void CloseConnection() {
-    auto result = state_.FinSent();
-    assert(result);
-    SendFin();
-    unsequenced_packets_.clear();
+  void SocketCloseConnection() {
+    std::lock_guard<TcpManager> guard(tcp_manager_);
+    CloseConnection();
   }
   
-  std::list<TcpPacket> GetReceivedPackets() {
+  std::list<TcpPacket> SocketGetReceivedPackets() {
+    std::lock_guard<TcpManager> guard(tcp_manager_);
     return buffer_.GetReadPackets();
   }
   
-  int AddPacketForSending(TcpPacket packet);
-  int AddPacketForSending(const char *begin, const char *end) {
+  int SocketAddPacketForSending(const char *begin, const char *end) {
+    std::lock_guard<TcpManager> guard(tcp_manager_);
     return AddPacketForSending(TcpPacket(begin, end));
   }
   
+ private:
   // Api for TcpManager/StateMachine
   std::list<std::shared_ptr<NetworkPacket> > GetPacketsForSending();
   std::list<std::shared_ptr<NetworkPacket> > GetPacketsForResending();
@@ -80,8 +84,26 @@ class TcpInternal : public TcpInternalInterface {
   State GetState() {
     return state_;
   }
+  
+  auto Id() const {
+    return id_;
+  }
+  
+  // misc
+  void Connect(uint16_t port, uint32_t seq, uint16_t window, 
+      const std::lock_guard<TcpManager> &guard);
+  
+  int Listen(uint16_t port, const std::lock_guard<TcpManager> &guard);
+  
+  int AddPacketForSending(TcpPacket packet);
 
- private:
+  void CloseConnection() {
+    auto result = state_.FinSent();
+    assert(result);
+    SendFin();
+    unsequenced_packets_.clear();
+  }
+  
   // callback action
   void SendAck() override {
     std::cerr << __func__ << std::endl;
@@ -181,7 +203,7 @@ class TcpSocket {
   TcpSocket(std::weak_ptr<TcpInternal> internal) : internal_(internal) {}
   
   int Listen(uint16_t port) {
-    return internal_.lock()->Listen(port);
+    return internal_.lock()->SocketListen(port);
   }
   
   TcpSocket Accept();
@@ -192,18 +214,17 @@ class TcpSocket {
     using PacketsType = std::list<TcpPacket>;
     if (internal_.expired())
       return std::make_pair(PacketsType{}, false);
-    return std::make_pair(internal_.lock()->GetReceivedPackets(), true);
+    return std::make_pair(internal_.lock()->SocketGetReceivedPackets(), true);
   }
   
-  // haven't
   int Write(const char *first, const char *last) {
-    return internal_.lock()->AddPacketForSending(first, last);;
+    return internal_.lock()->SocketAddPacketForSending(first, last);;
   }
   
   int Close() {
     if (internal_.expired())
       return -1;
-    internal_.lock()->CloseConnection();
+    internal_.lock()->SocketCloseConnection();
     return 0;
   }
   
