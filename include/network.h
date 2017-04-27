@@ -16,8 +16,6 @@
 
 namespace tcp_simulator {
 
-extern std::mutex g_mtx;
-
 class NetworkService {
  public:
   NetworkService(const std::string &host_address, uint16_t host_port,
@@ -68,7 +66,7 @@ class NetworkService {
   void join() {
     thread_.join();
   }
-  
+
  private:
   void Run(std::promise<void> running);
   

@@ -3,7 +3,37 @@
 
 namespace tcp_simulator {
 
-void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet) {
+int TcpManager::CloseInternal(uint64_t id) {
+  std::cerr << "erasing internal" << std::endl;
+  int ret = 0;
+  auto ite_internal = tcp_internals_.find(id);
+  
+  if(ite_internal == tcp_internals_.end())
+    ret = -1;
+  else
+    tcp_internals_.erase(ite_internal);
+  
+  auto connections = incomming_connections_.find(id);
+  if (connections == incomming_connections_.end()) {
+    ret = -1;
+  } else {
+    for (auto connection_id : connections->second) {
+      std::cerr << "Non accpeted connection removed" << std::endl;
+      auto ite_connection = tcp_internals_.find(connection_id);
+      assert(ite_connection != tcp_internals_.end());
+      auto packet = ite_connection->second->GetRstPacket();
+      tcp_internals_.erase(ite_connection);
+      
+      SendPacket(static_cast<std::shared_ptr<NetworkPacket>>(packet));
+    }
+  }
+  
+  std::cerr << "internal erased" << std::endl;
+  return ret;
+}
+
+void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet,
+    const std::lock_guard<TcpManager> &) {
   // Construct A TcpPacket
   TcpPacket tcp_packet(packet);
   
@@ -54,37 +84,9 @@ void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet) {
           std::chrono::steady_clock>(std::chrono::seconds(5)), internal);
 }
 
-int TcpManager::CloseInternal(uint64_t id) {
-  std::cerr << "erasing internal" << std::endl;
-  int ret = 0;
-  auto ite_internal = tcp_internals_.find(id);
-  
-  if(ite_internal == tcp_internals_.end())
-    ret = -1;
-  else
-    tcp_internals_.erase(ite_internal);
-  
-  auto connections = incomming_connections_.find(id);
-  if (connections == incomming_connections_.end()) {
-    ret = -1;
-  } else {
-    for (auto connection_id : connections->second) {
-      std::cerr << "Non accpeted connection removed" << std::endl;
-      auto ite_connection = tcp_internals_.find(connection_id);
-      assert(ite_connection != tcp_internals_.end());
-      auto packet = ite_connection->second->GetRstPacket();
-      ite_connection->second->Reset();
-      
-      SendPacket(static_cast<std::shared_ptr<NetworkPacket>>(packet));
-    }
-  }
-  
-  std::cerr << "internal erased" << std::endl;
-  return ret;
-}
-
 void TcpManager::SwapPacketsForSending(
-    std::list<std::shared_ptr<NetworkPacket> > &list) {
+    std::list<std::shared_ptr<NetworkPacket> > &list,
+    const std::lock_guard<TcpManager> &) {
   for (auto pair : tcp_internals_) {
     auto &internal = pair.second;
     SendPackets(internal->GetPacketsForSending());

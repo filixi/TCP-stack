@@ -17,9 +17,9 @@ class TcpManager;
 
 class TcpInternal : public TcpInternalInterface {
  public:
-  TcpInternal(uint64_t id, TcpManager *manager, uint16_t host_port,
+  TcpInternal(uint64_t id, TcpManager &manager, uint16_t host_port,
               uint16_t peer_port)
-      : id_(id), manager_(manager), host_port_(host_port),
+      : id_(id), tcp_manager_(manager), host_port_(host_port),
         peer_port_(peer_port) {}
   
   TcpInternal(const TcpInternal &) = delete;
@@ -29,7 +29,6 @@ class TcpInternal : public TcpInternalInterface {
   TcpInternal &operator=(TcpInternal &&) = delete;
   
   // Api for Socket
-  
   int CloseInternal(); 
   TcpSocket AcceptConnection();
   
@@ -52,10 +51,11 @@ class TcpInternal : public TcpInternalInterface {
   }
   
   int AddPacketForSending(TcpPacket packet);
-  int AddPacketForSending(const char *begin, const char *end);
+  int AddPacketForSending(const char *begin, const char *end) {
+    return AddPacketForSending(TcpPacket(begin, end));
+  }
   
   // Api for TcpManager/StateMachine
-  
   std::list<std::shared_ptr<NetworkPacket> > GetPacketsForSending();
   std::list<std::shared_ptr<NetworkPacket> > GetPacketsForResending();
   
@@ -68,8 +68,6 @@ class TcpInternal : public TcpInternalInterface {
   auto PeerPort() {
     return peer_port_;
   }
-  
-  void Reset() override;
   
   auto GetRstPacket() {
     TcpPacket packet(nullptr, nullptr);
@@ -160,12 +158,14 @@ class TcpInternal : public TcpInternalInterface {
   
   void NewConnection() override;
   
+  void Reset() override;
+  
   uint64_t id_;
   
   TcpBuffer buffer_;
   TcpStateMachine state_;
   
-  TcpManager *manager_;
+  TcpManager &tcp_manager_;
   
   TcpPacket current_packet_;
 

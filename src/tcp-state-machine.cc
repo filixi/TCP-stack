@@ -1,6 +1,7 @@
 #include "tcp-state-machine.h"
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 
 namespace tcp_simulator {

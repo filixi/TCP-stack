@@ -2,6 +2,7 @@
 
 namespace tcp_simulator {
 
+// lock for sequencing cerr
 std::mutex g_mtx;
 
 void LittleUdpSender(uint16_t port) {
@@ -43,21 +44,22 @@ void NetworkService::Run(std::promise<void> running) {
   std::unique_ptr<char[]> buff(new char[102400]);
 
   for(;;) {
-    std::unique_lock<std::mutex> lock(g_mtx);
+    std::unique_lock<std::mutex> output_sequence_lock(g_mtx);
     
     pollfd fdarray[1] = {{host_socket, POLLIN, 0}};
     auto duration =
         std::chrono::duration_cast<std::chrono::milliseconds>(
-            tcp_manager_.GetNextEventTime() - std::chrono::steady_clock::now());
+            tcp_manager_.GetNextEventTime(
+                std::lock_guard<TcpManager>(tcp_manager_)) -
+            std::chrono::steady_clock::now());
     if (duration < std::chrono::milliseconds(10))
       duration = std::chrono::milliseconds(10);
     std::cerr << this << std::endl;
     std::cerr << "poll next time out : " << duration.count() << std::endl;
-    lock.unlock();
     
+    output_sequence_lock.unlock();
     auto ret = poll(fdarray, 1, duration.count());
-    
-    lock.lock();
+    output_sequence_lock.lock();
     
     
     if (ret < 0) {
@@ -74,13 +76,15 @@ void NetworkService::Run(std::promise<void> running) {
       } else {
         std::cerr << "Packet received" << std::endl;
         auto packet = NetworkPacket::NewPacket(buff.get(), buff.get()+n);
-        tcp_manager_.Multiplexing(packet);
+        tcp_manager_.Multiplexing(packet,
+            std::lock_guard<TcpManager>(tcp_manager_));
       }
     } else {
       ;
     }
     
-    tcp_manager_.SwapPacketsForSending(packets_for_sending);
+    tcp_manager_.SwapPacketsForSending(packets_for_sending,
+        std::lock_guard<TcpManager>(tcp_manager_));
     for (auto &packet : packets_for_sending) {
       char *begin = nullptr, *end = nullptr;
       std::tie(begin, end) = packet->GetBuffer();

@@ -52,10 +52,6 @@ int TcpInternal::AddPacketForSending(TcpPacket packet) {
   return 0;
 }
 
-int TcpInternal::AddPacketForSending(const char *begin, const char *end) {
-  return AddPacketForSending(TcpPacket(begin, end));
-}
-
 void TcpInternal::ReceivePacket(TcpPacket packet) {
   if (packet.ValidByChecksum() == false) {
     std::cerr << "Checksum failed" << std::endl;
@@ -85,13 +81,13 @@ void TcpInternal::ReceivePacket(TcpPacket packet) {
 }
 
 int TcpInternal::CloseInternal() {
-  return manager_->CloseInternal(id_);
+  return tcp_manager_.CloseInternal(id_,
+      std::lock_guard<TcpManager>(tcp_manager_));
 }
 
 TcpSocket TcpInternal::AcceptConnection() {
-  assert(manager_);
-
-  return manager_->AcceptConnection(this);
+  return tcp_manager_.AcceptConnection(this,
+      std::lock_guard<TcpManager>(tcp_manager_));
 }
 
 void TcpInternal::Reset() {
@@ -106,14 +102,15 @@ void TcpInternal::Reset() {
 
 void TcpInternal::NewConnection() {
   std::cerr << __func__ << std::endl;
-  manager_->NewConnection(id_, std::move(current_packet_));
+  tcp_manager_.NewConnection(id_, std::move(current_packet_));
 }
 
 void TcpInternal::Connect(uint16_t port, uint32_t seq, uint16_t window) {
   peer_port_ = port;
   assert(host_port_ != 0 && peer_port_ != 0);
   
-  manager_->RegestBound(host_port_, peer_port_, id_);
+  tcp_manager_.Bind(host_port_, peer_port_, id_,
+      std::lock_guard<TcpManager>(tcp_manager_));
   auto result = state_.SynSent(seq, window);
   assert(result);
   SendSyn();
@@ -126,7 +123,8 @@ int TcpInternal::Listen(uint16_t port) {
   
   host_port_ = port;
   peer_port_ = 0;
-  manager_->RegestBound(host_port_, peer_port_, id_);
+  tcp_manager_.Bind(host_port_, peer_port_, id_,
+      std::lock_guard<TcpManager>(tcp_manager_));
   return 0;
 }
 

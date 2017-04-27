@@ -24,30 +24,28 @@ class TcpManager {
   TcpManager &operator=(TcpManager &&) = delete;
 
   ~TcpManager() = default;
-
+  
+  // API for user
   TcpSocket NewSocket(uint16_t host_port) {
+    std::lock_guard<TcpManager> guard(*this);
+    
     auto result = tcp_internals_.emplace(
         next_tcp_id_, std::make_shared<TcpInternal>(
-            next_tcp_id_, this, host_port, 0));
+            next_tcp_id_, *this, host_port, 0));
     ++next_tcp_id_;
     
     assert(result.second == true);
     return TcpSocket(result.first->second);
   }
-  
-  TcpSocket NewSocket(uint64_t id) {
-    auto search_result = tcp_internals_.find(id);
-    
-    assert(search_result != tcp_internals_.end());
-    return TcpSocket(search_result->second);
-  }
 
-  void RegestBound(uint16_t host_port, uint16_t peer_port,
-                   uint64_t id) {
-    port_to_id_[HashPort(host_port, peer_port)] = id;
+  // API for Internal
+  void Bind(uint16_t host_port, uint16_t peer_port, uint64_t id,
+      const std::lock_guard<TcpManager> &) {
+    Bind(host_port, peer_port, id);
   }
   
-  TcpSocket AcceptConnection(TcpInternal *from) {
+  TcpSocket AcceptConnection(TcpInternal *from,
+      const std::lock_guard<TcpManager> &) {
     uint64_t id = from->Id();
     auto search_result = incomming_connections_.find(id);
     assert(search_result != incomming_connections_.end());
@@ -70,6 +68,41 @@ class TcpManager {
       incomming_connections_[id].push_back(internal->Id());
   }
 
+  int CloseInternal(uint64_t id, const std::lock_guard<TcpManager> &) {
+    return CloseInternal(id);
+  }
+
+  // API for network Service
+  void SwapPacketsForSending(
+      std::list<std::shared_ptr<NetworkPacket> > &list,
+      const std::lock_guard<TcpManager> &);
+  
+  void Multiplexing(std::shared_ptr<NetworkPacket> packet,
+      const std::lock_guard<TcpManager> &);
+  
+  std::chrono::time_point<std::chrono::steady_clock> GetNextEventTime(
+      const std::lock_guard<TcpManager> &) {
+    //if (!timeout_queue_.empty())
+    //  return timeout_queue_.begin()->first;
+    return std::chrono::time_point<std::chrono::steady_clock>(
+        std::chrono::steady_clock::now()) + std::chrono::milliseconds(177);
+  }
+  
+  void lock() {
+    mtx_.lock();
+  }
+  
+  void unlock() {
+    mtx_.unlock();
+  }
+
+ private:
+  void Bind(uint16_t host_port, uint16_t peer_port, uint64_t id) {
+    port_to_id_[HashPort(host_port, peer_port)] = id;
+  }
+  
+  int CloseInternal(uint64_t id);
+  
   void SendPacket(std::shared_ptr<NetworkPacket> packet) {
     packets_for_sending_.emplace_back(packet);
   }
@@ -79,7 +112,9 @@ class TcpManager {
     for (const auto &packet : container)
       SendPacket(static_cast<std::shared_ptr<NetworkPacket>>(packet));
   }
-
+  
+  void Interrupt() {}
+  
   auto GetInternal(uint16_t host_port, uint16_t peer_port) {
     auto id_ite = port_to_id_.find(HashPort(host_port, peer_port));
     uint64_t id = 0;
@@ -88,23 +123,13 @@ class TcpManager {
     return tcp_internals_.find(id);
   }
   
-  int CloseInternal(uint64_t id);
-  
-  void Multiplexing(std::shared_ptr<NetworkPacket> packet);
-  
-  void Interrupt() {}
-  
-  void SwapPacketsForSending(
-      std::list<std::shared_ptr<NetworkPacket> > &list);
-  
-  std::chrono::time_point<std::chrono::steady_clock> GetNextEventTime() {
-    //if (!timeout_queue_.empty())
-    //  return timeout_queue_.begin()->first;
-    return std::chrono::time_point<std::chrono::steady_clock>(
-        std::chrono::steady_clock::now()) + std::chrono::milliseconds(177);
+  TcpSocket NewSocket(uint64_t id) {
+    auto search_result = tcp_internals_.find(id);
+    
+    assert(search_result != tcp_internals_.end());
+    return TcpSocket(search_result->second);
   }
   
- private:
   static uint32_t HashPort(uint16_t host_port, uint16_t peer_port) {
     return (static_cast<uint32_t>(host_port)<<16) + peer_port;
   }
@@ -113,8 +138,8 @@ class TcpManager {
       uint16_t host_port,uint16_t peer_port) {
     auto result = tcp_internals_.emplace(
         next_tcp_id_, std::make_shared<TcpInternal>(
-            next_tcp_id_, this, host_port, peer_port));
-    RegestBound(host_port, peer_port, next_tcp_id_);
+            next_tcp_id_, *this, host_port, peer_port));
+    Bind(host_port, peer_port, next_tcp_id_);
     
     ++next_tcp_id_;
     return result.first->second;
@@ -130,6 +155,8 @@ class TcpManager {
                 std::weak_ptr<TcpInternal> > timeout_queue_;
   
   uint64_t next_tcp_id_ = 1;
+  
+  std::mutex mtx_;
 };
 
 } // namespace tcp_simulator

@@ -1,6 +1,6 @@
 CC = g++
 STD = -std=c++14
-FLAG = -Wall #-Wconversion
+FLAG = -Wall -g #-Wconversion
 LIBRARY = -pthread
 
 INCLUDE = -I ./include/
