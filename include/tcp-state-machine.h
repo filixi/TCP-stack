@@ -148,8 +148,10 @@ std::basic_ostream<CharT, Traits> &operator<<(
     std::basic_ostream<CharT, Traits> &o, TcpStateMachine &m);
 
 class RulesOnState;
+class TransitionRule;
 class TcpStateMachine {
  public:
+  friend class TransitionRule;
   template <class CharT, class Traits>
   friend std::basic_ostream<CharT, Traits>
   &operator<<(std::basic_ostream<CharT, Traits> &, TcpStateMachine &);
@@ -423,8 +425,6 @@ class TcpStateMachine {
   uint32_t host_next_seq_ = host_initial_seq_+1;
   uint32_t host_last_ack_ = 0;
   uint16_t host_window_ = 4096;
-  
-  static std::vector<std::pair<State, RulesOnState> > transition_rules_;
 };
 
 template <class CharT, class Traits>
