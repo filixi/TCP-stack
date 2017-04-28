@@ -1,34 +1,19 @@
-CC = g++
-STD = -std=c++14
-FLAG = -Wall -g #-Wconversion
-LIBRARY = -pthread
+IDIR=include
+SDIR=src
 
-INCLUDE = -I ./include/
+CC=g++
+FLAG=-std=c++14
 
-main : tcp-buffer.o tcp-state-machine.o tcp-socket.o network.o \
-		tcp-manager.o main.o tcp-internal.o
-	$(CC) $(STD) *.o $(LIBRARY) $(FLAG)
+OBJS=tcp-buffer.o tcp-state-machine.o tcp-socket.o network.o \
+	tcp-manager.o main.o tcp-internal.o
 
-main.o : main.cc
-	$(CC) $(STD) -c main.cc $(FLAG) $(INCLUDE)
+all : main.o
 
-tcp-buffer.o : include/tcp-buffer.h src/tcp-buffer.cc
-	$(CC) $(STD) -c src/tcp-buffer.cc $(FLAG) $(INCLUDE)
+main.o : $(OBJS)
+	$(CC) $(FLAG) -I $(IDIR) main.cc *.o -lpthread
 
-tcp-state-machine.o : include/tcp-state-machine.h src/tcp-state-machine.cc
-	$(CC) $(STD) -c src/tcp-state-machine.cc $(FLAG) $(INCLUDE)
-
-tcp-socket.o : include/tcp-socket.h src/tcp-socket.cc
-	$(CC) $(STD) -c src/tcp-socket.cc $(FLAG) $(INCLUDE)
-
-tcp-internal.o : include/tcp-internal.h src/tcp-internal.cc
-	$(CC) $(STD) -c src/tcp-internal.cc $(FLAG) $(INCLUDE)
-
-network.o : include/network.h src/network.cc
-	$(CC) $(STD) -c src/network.cc $(FLAG) $(INCLUDE)
-
-tcp-manager.o : include/tcp-manager.h src/tcp-manager.cc
-	$(CC) $(STD) -c src/tcp-manager.cc $(FLAG) $(INCLUDE)
+%.o : $(SDIR)/%.cc $(IDIR)/%.h
+	$(CC) $(FLAG) -c -I $(IDIR) $<
 
 clean :
 	rm *.o
