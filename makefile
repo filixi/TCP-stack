@@ -5,11 +5,11 @@ CC=g++
 FLAG=-std=c++14
 
 OBJS=tcp-buffer.o tcp-state-machine.o tcp-socket.o network.o \
-	tcp-manager.o main.o tcp-internal.o
+	tcp-manager.o tcp-internal.o
 
-all : main.o
+all : main
 
-main.o : $(OBJS)
+main : $(OBJS)
 	$(CC) $(FLAG) -I $(IDIR) main.cc *.o -lpthread
 
 %.o : $(SDIR)/%.cc $(IDIR)/%.h
