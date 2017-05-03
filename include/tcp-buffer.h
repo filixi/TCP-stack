@@ -203,7 +203,7 @@ class TcpHeader {
   Field<5> field_;
 };
 
-// only adapt a NetworkPacket
+// NetworkPacket wrapper
 class TcpPacket {
  public:
   // Consturct an empty TcpPacket
@@ -276,8 +276,12 @@ class TcpPacket {
   
   uint16_t CalculateChecksum();
   
+  std::weak_ptr<NetworkPacket> WeakFromThis() {
+    return GetNetworkPacket();
+  }
+  
  private:
-  auto GetNetworkPacket() {
+  std::shared_ptr<NetworkPacket> GetNetworkPacket() {
     return network_packet_;
   }
   
@@ -299,6 +303,10 @@ class TcpBuffer {
     }
   }
   
+  void PopWiriteBuffer() {
+    write_buffer_.pop_front();
+  }
+  
   auto GetReadPackets() {
     std::list<TcpPacket> packets(
         std::make_move_iterator(read_buffer_.begin()),
@@ -307,18 +315,19 @@ class TcpBuffer {
     return packets;
   }
   
-  template <class UnaryFunction>
-  auto GetPacketsForResending(UnaryFunction fn) {
-    std::list<std::shared_ptr<NetworkPacket> > packets;
-    std::transform(unack_packets_.begin(), unack_packets_.end(),
-                   std::back_inserter(packets),
-                   [&fn](auto &x){
-                     fn(x);
-                     return static_cast<std::shared_ptr<NetworkPacket> >(x);
-                   });
-    read_buffer_.clear();
-    return packets;
-  }
+  // obsolete
+  // template <class UnaryFunction>
+  // auto GetPacketsForResending(UnaryFunction fn) {
+  //   std::list<std::shared_ptr<NetworkPacket> > packets;
+  //   std::transform(unack_packets_.begin(), unack_packets_.end(),
+  //                  std::back_inserter(packets),
+  //                  [&fn](auto &x){
+  //                    fn(x);
+  //                    return static_cast<std::shared_ptr<NetworkPacket> >(x);
+  //                  });
+  //   read_buffer_.clear();
+  //   return packets;
+  // }
   
   void AddToReadBuffer(TcpPacket ptr) {
     std::cerr << __func__ << std::endl;
@@ -333,13 +342,13 @@ class TcpBuffer {
   int Ack(uint32_t acknowledge_number) {
     std::cerr << __func__  << " Buffer Called - ";
     while (!unack_packets_.empty() &&
-           acknowledge_number >
+           acknowledge_number >=
               unack_packets_.front().GetHeader().SequenceNumber() + 
                   unack_packets_.front().Length()) {
       std::cerr << __func__ << " ";
       unack_packets_.pop_front();
     }
-    std::cerr << std::endl;
+    std::cerr << unack_packets_.size() << std::endl;
     return 0;
   }
   

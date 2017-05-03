@@ -20,6 +20,7 @@ class TcpManager;
 class TcpInternal : public TcpInternalInterface {
  public:
   friend class TcpManager;
+  friend class ResendPacket;
   
   TcpInternal(uint64_t id, TcpManager &manager, uint16_t host_port,
               uint16_t peer_port);
@@ -74,7 +75,13 @@ class TcpInternal : public TcpInternalInterface {
  private:
   // Api for TcpManager/StateMachine
   std::list<std::shared_ptr<NetworkPacket> > GetPacketsForSending();
-  std::list<std::shared_ptr<NetworkPacket> > GetPacketsForResending();
+  //std::list<std::shared_ptr<NetworkPacket> > GetPacketsForResending();
+  void PreparePacketForResending(std::shared_ptr<NetworkPacket> &packet) {
+    TcpPacket tcp_packet(packet);
+    state_.PrepareResendHeader(tcp_packet.GetHeader(), 0);
+    tcp_packet.GetHeader().Checksum() = 0;
+    tcp_packet.GetHeader().Checksum() = tcp_packet.CalculateChecksum();
+  }
   
   void ReceivePacket(TcpPacket packet);
   
@@ -115,6 +122,26 @@ class TcpInternal : public TcpInternalInterface {
     assert(result);
     SendFin();
     unsequenced_packets_.clear();
+  }
+  
+  void CheckUnsequencedPacket() {
+    std::cerr << "Checking unsequenced packets" << std::endl;
+    while (!unsequenced_packets_.empty()) {
+      std::cerr << "Check" << std::endl;
+      auto ite = unsequenced_packets_.begin();
+      auto &packet = ite->second;
+      if (!state_.OnSequencePacket(packet.GetHeader(), packet.Length()))
+        break;
+      std::cerr << "A packet is added to ReadBuffer" << std::endl;
+      buffer_.AddToReadBuffer(std::move(packet));
+      unsequenced_packets_.erase(ite);
+      NotifyOnReceivingMessage();
+    }
+  }
+  
+  void CheckResendQueue() {
+    std::cerr << "Checking packets for resending" << std::endl;
+    buffer_.Ack(state_.GetPeerLastAck());
   }
   
   // callback action
@@ -173,6 +200,8 @@ class TcpInternal : public TcpInternalInterface {
   
   void Accept() override {
     std::cerr << __func__ << std::endl;
+    CheckResendQueue();
+    
     if(state_ != State::kEstab || current_packet_.Length() == 0)
       return ;
     
@@ -180,6 +209,8 @@ class TcpInternal : public TcpInternalInterface {
     unsequenced_packets_.emplace(
         current_packet_.GetHeader().SequenceNumber(),
         std::move(current_packet_));
+    
+    CheckUnsequencedPacket();
   }
   
   void Discard() override {

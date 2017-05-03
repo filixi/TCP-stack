@@ -14,11 +14,11 @@ int main() {
   auto service2 = NetworkService::AsyncRun(
       "127.0.0.1", 15260, "127.0.0.1", 15259);
   
-  auto sock1 = service1->NewTcpSocket(15);
-  auto sock2 = service2->NewTcpSocket(25);
+  auto sock1 = service1->NewTcpSocket(1);
+  auto sock2 = service2->NewTcpSocket(100);
   
-  sock1.Listen(15);
-  sock2.Connect(15);
+  sock1.Listen(1);
+  sock2.Connect(1);
 
   auto sock3 = sock1.Accept();
   std::cerr << "Accepted" << std::endl;
@@ -34,10 +34,12 @@ found among all those annoying logs!!!";
   
   std::cerr << data.first.front().GetData().first << std::endl;
 
-  sock2.Close();
+  
 
   service1->join();
   service2->join();
+  
+  sock2.Close();
   
   return 0;
 }

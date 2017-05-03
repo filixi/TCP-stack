@@ -185,7 +185,7 @@ class TcpStateMachine {
   void PrepareHeader(TcpHeader &header, uint16_t size) const;
   
   void PrepareResendHeader(TcpHeader &header, uint16_t) const {
-    std::cerr << __func__;
+    std::cerr << __func__ << std::endl;
     if (header.Ack())
       header.AcknowledgementNumber() = host_last_ack_;
     header.Window() = host_window_;
@@ -434,10 +434,11 @@ class TcpStateMachine {
 template <class CharT, class Traits>
 std::basic_ostream<CharT, Traits> &operator<<(
     std::basic_ostream<CharT, Traits> &o, TcpStateMachine &m) {
-  o << "------------" << std::endl;
-  o << "State-" << m.GetState() << " Stage-" << m.GetStage() << std::endl;
+  return
+  o << "------------" << std::endl
+    << "State-" << m.GetState() << " Stage-" << m.GetStage() << std::endl
   
-  o << m.peer_initial_seq_ << " "
+    << m.peer_initial_seq_ << " "
     << m.peer_last_ack_ << " "
     << m.peer_window_ << " "
     << std::endl
@@ -446,11 +447,9 @@ std::basic_ostream<CharT, Traits> &operator<<(
     << m.host_next_seq_ << " "
     << m.host_last_ack_ << " "
     << m.host_window_ << " "
-    << std::endl;
+    << std::endl
   
-  o << "------------" << std::endl;
-
-  return o;
+    << "------------" << std::endl;
 }
 
 } // namespace tcp_simulator

@@ -2,7 +2,7 @@ IDIR=include
 SDIR=src
 
 CC=g++
-FLAG=-std=c++14
+FLAG=-std=c++14 #-fmax-errors=2
 
 OBJS=tcp-buffer.o tcp-state-machine.o tcp-socket.o network.o \
 	tcp-manager.o tcp-internal.o

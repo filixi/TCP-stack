@@ -258,11 +258,11 @@ void TransitionRule::InitRule(RulesType *rules) {
   using M = TcpStateMachine;
   
   RuleOnEvent default_rule(
-      [](auto...) {return true;},
-      [](auto...) {},
-      [](auto...) {},
-      [](auto...) {},
-      [](auto...) {});
+      [](auto...) {return false;}, // check
+      [](auto...) {}, // Update on success
+      [](auto...) {}, // failure
+      [](auto...) {}, // React on success
+      discard); // failure
   
   RuleOnEvent rule_reset(
       &M::CheckSeq,

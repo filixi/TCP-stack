@@ -48,7 +48,8 @@ std::ostream &operator<<(std::ostream &o,
   
   o << header.SourcePort() << "->" << header.DestinationPort() << " ";
   o << "S" << header.SequenceNumber() << " ";
-  o << "A" << header.AcknowledgementNumber();
+  o << "A" << header.AcknowledgementNumber() << " ";
+  o << "L" << packet.Length() << std::endl;
   return o;
 }
 

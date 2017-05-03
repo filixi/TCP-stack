@@ -15,8 +15,50 @@
 
 namespace tcp_simulator {
 
+class TimeoutEvent {
+ public:
+  virtual void OnEvent() = 0;
+  virtual std::pair<std::chrono::time_point<std::chrono::steady_clock>, bool>
+  Reschedule() = 0;
+};
+
+class ResendPacket : public TimeoutEvent {
+ public:
+  ResendPacket(std::weak_ptr<NetworkPacket> packet, TcpManager &manager,
+               std::chrono::milliseconds period,
+               std::weak_ptr<TcpInternal> internal)
+      : packet_(packet), manager_(manager), internal_(internal),
+        period_(period) {}
+      
+  void OnEvent() override;
+
+  std::pair<std::chrono::time_point<std::chrono::steady_clock>, bool>
+  Reschedule() override {
+    if (packet_.expired())
+      return {std::chrono::steady_clock::now(), false};
+    return {std::chrono::steady_clock::now() + period_, true};
+  }
+
+ private:
+  std::weak_ptr<NetworkPacket> packet_;
+  TcpManager &manager_;
+  std::weak_ptr<TcpInternal> internal_;
+  
+  const std::chrono::milliseconds period_;
+};
+
+
+class CloseInternal : TimeoutEvent {
+ public:
+  void OnEvent() override {
+    
+  }
+};
+
 class TcpManager {
  public:
+  friend class ResendPacket;
+  
   TcpManager() = default;
   TcpManager(const TcpManager &) = delete;
   TcpManager(TcpManager &&) = delete;
@@ -86,8 +128,8 @@ class TcpManager {
   
   std::chrono::time_point<std::chrono::steady_clock> GetNextEventTime(
       const std::lock_guard<TcpManager> &) {
-    //if (!timeout_queue_.empty())
-    //  return timeout_queue_.begin()->first;
+    if (!timeout_queue_.empty())
+      return timeout_queue_.begin()->first;
     return std::chrono::time_point<std::chrono::steady_clock>(
         std::chrono::steady_clock::now()) + std::chrono::milliseconds(177);
   }
@@ -149,6 +191,19 @@ class TcpManager {
     return result.first->second;
   }
   
+  void AddToResendList(std::shared_ptr<NetworkPacket> &&packet) {
+    packets_for_sending_.emplace_back(std::move(packet));
+  }
+  
+  void AddEvent(std::chrono::time_point<std::chrono::steady_clock> abs_time,
+                std::shared_ptr<TimeoutEvent> &&event) {
+    std::cerr << "Timeout event added: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(
+                     abs_time-std::chrono::steady_clock::now()).count()
+              << std::endl;
+    timeout_queue_.emplace(abs_time, std::move(event));
+  }
+  
   std::list<std::shared_ptr<NetworkPacket> > packets_for_sending_;
   
   std::map<uint64_t, std::shared_ptr<TcpInternal> > tcp_internals_;
@@ -156,8 +211,8 @@ class TcpManager {
   std::map<uint32_t, uint64_t> port_to_id_;
   
   std::multimap<std::chrono::time_point<std::chrono::steady_clock>,
-                std::weak_ptr<TcpInternal> > timeout_queue_;
-  
+                std::shared_ptr<TimeoutEvent> > timeout_queue_;
+
   uint64_t next_tcp_id_ = 1;
   
   std::mutex mtx_;

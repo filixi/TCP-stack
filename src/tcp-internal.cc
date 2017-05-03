@@ -39,21 +39,28 @@ TcpInternal::GetPacketsForSending() {
     packet->GetHeader().Checksum() = packet->CalculateChecksum();
     result.emplace_back(static_cast<std::shared_ptr<NetworkPacket> >(
         *packet));
-    buffer_.MoveFrontWriteToUnack();
+    
+    if (packet->Length() > 0 || state_!= State::kEstab) {
+      std::cerr << "Packet moved to resend buffer" << std::endl;
+      buffer_.MoveFrontWriteToUnack();
+    } else {
+      std::cerr << "Packet poped" << std::endl;
+      buffer_.PopWiriteBuffer();
+    }
   }
   
   return result;
 }
 
-std::list<std::shared_ptr<NetworkPacket> >
-TcpInternal::GetPacketsForResending() {
-  return buffer_.GetPacketsForResending(
-      [this](TcpPacket &packet) {
-        state_.PrepareResendHeader(packet.GetHeader(), 0);
-        packet.GetHeader().Checksum() = 0;
-        packet.GetHeader().Checksum() = packet.CalculateChecksum();
-      });
-}
+// std::list<std::shared_ptr<NetworkPacket> >
+// TcpInternal::GetPacketsForResending() {
+//   return buffer_.GetPacketsForResending(
+//       [this](TcpPacket &packet) {
+//         state_.PrepareResendHeader(packet.GetHeader(), 0);
+//         packet.GetHeader().Checksum() = 0;
+//         packet.GetHeader().Checksum() = packet.CalculateChecksum();
+//       });
+// }
 
 int TcpInternal::AddPacketForSending(TcpPacket packet) {
   packet.GetHeader().SourcePort() = host_port_;
@@ -74,19 +81,6 @@ void TcpInternal::ReceivePacket(TcpPacket packet) {
   auto react = state_.OnReceivePacket(&current_packet_.GetHeader(), size);
   std::cerr << "Reacting" << std::endl;
   react(this);
-  
-  std::cerr << "Checking unsequenced packets" << std::endl;
-  while (!unsequenced_packets_.empty()) {
-    std::cerr << "Check" << std::endl;
-    auto ite = unsequenced_packets_.begin();
-    auto &packet = ite->second;
-    if (!state_.OnSequencePacket(packet.GetHeader(), packet.Length()))
-      break;
-    std::cerr << "A packet is added to ReadBuffer" << std::endl;
-    buffer_.AddToReadBuffer(std::move(packet));
-    unsequenced_packets_.erase(ite);
-    NotifyOnReceivingMessage();
-  }
   
   std::cerr << "#" << id_ << state_;
 }

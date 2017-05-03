@@ -3,6 +3,16 @@
 
 namespace tcp_simulator {
 
+void ResendPacket::OnEvent() {
+  // Add to resend
+  auto packet = packet_.lock();
+  auto internal = internal_.lock();
+  if (packet != nullptr && internal != nullptr) {
+    internal_.lock()->PreparePacketForResending(packet);
+    manager_.AddToResendList(std::move(packet));
+  }
+}
+
 int TcpManager::CloseInternal(uint64_t id) {
   std::cerr << "erasing internal" << std::endl;
   int ret = 0;
@@ -73,15 +83,6 @@ void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet,
       return ;
     }
   }
-  
-  // Ask for sending
-  SendPackets(internal->GetPacketsForSending());
-  //SendPackets(internal->GetPacketsForResending());
-
-  // Add to resend queue
-  timeout_queue_.emplace(
-      std::chrono::time_point<
-          std::chrono::steady_clock>(std::chrono::seconds(5)), internal);
 }
 
 void TcpManager::SwapPacketsForSending(
@@ -89,7 +90,36 @@ void TcpManager::SwapPacketsForSending(
     const std::lock_guard<TcpManager> &) {
   for (auto pair : tcp_internals_) {
     auto &internal = pair.second;
-    SendPackets(internal->GetPacketsForSending());
+    auto packets = internal->GetPacketsForSending();
+    
+    for (auto &packet : packets) {
+      AddEvent(std::chrono::steady_clock::now() +
+                   std::chrono::milliseconds(2000),
+               std::make_shared<ResendPacket>(
+                   packet, *this, std::chrono::milliseconds(2000),internal));
+    }
+    SendPackets(std::move(packets));
+  }
+  
+  using ClockType = decltype(timeout_queue_)::key_type::clock;
+  std::list<std::shared_ptr<TimeoutEvent> > events_triggered;
+  
+  for (auto ite = timeout_queue_.begin(); ite != timeout_queue_.end();) {
+    const std::chrono::seconds duration =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            ite->first - ClockType::now());
+    if (duration >= std::chrono::seconds(1))
+      break;
+    std::cerr << "Resend triggered" << std::endl;
+    events_triggered.emplace_back(std::move(ite->second));
+    ite = timeout_queue_.erase(ite);
+  }
+  
+  for (auto &event : events_triggered) {
+    event->OnEvent();
+    auto deadline = event->Reschedule();
+    if (deadline.second == true)
+      AddEvent(deadline.first, std::move(event));
   }
   
   packets_for_sending_.swap(list);
