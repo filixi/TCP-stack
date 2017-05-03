@@ -52,8 +52,8 @@ void NetworkService::Run(std::promise<void> running) {
             tcp_manager_.GetNextEventTime(
                 std::lock_guard<TcpManager>(tcp_manager_)) -
             std::chrono::steady_clock::now());
-    if (duration < std::chrono::milliseconds(10))
-      duration = std::chrono::milliseconds(10);
+    //if (duration < std::chrono::milliseconds(10))
+    duration = std::chrono::milliseconds(120);
     std::cerr << this << std::endl;
     std::cerr << "poll next time out : " << duration.count() << std::endl;
     
