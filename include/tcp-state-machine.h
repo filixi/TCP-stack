@@ -426,7 +426,7 @@ class TcpStateMachine {
   uint32_t peer_window_ = 0;
   
   uint32_t host_initial_seq_ = 100;
-  uint32_t host_next_seq_ = host_initial_seq_+1;
+  uint32_t host_next_seq_ = host_initial_seq_ + 1;
   uint32_t host_last_ack_ = 0;
   uint16_t host_window_ = 4096;
 };

@@ -18,25 +18,27 @@ TcpInternal::~TcpInternal() {}
 std::list<std::shared_ptr<NetworkPacket> >
 TcpInternal::GetPacketsForSending() {
   std::list<std::shared_ptr<NetworkPacket> > result;
+  std::cerr << __func__ << " ---- " << std::endl;
   for (;;) {
     auto packet = buffer_.GetFrontWritePacket();
     if (packet == nullptr)
       break;
-    
-    std::cerr << __func__ << " @ ";
-    std::cerr << "GetSeq" << packet->Length() << " ";
+
     auto sequence_number = state_.NextSequenceNumber(
         static_cast<uint16_t>(packet->Length()));
     if (sequence_number.second == false)
       break;
-    std::cerr << "Seq for sending:" << sequence_number.first << std::endl;
+
     packet->GetHeader().SequenceNumber() = sequence_number.first;
-    
-    std::cerr << "Psh ";
-    std::cerr << std::endl;
     state_.PrepareHeader(packet->GetHeader(), packet->Length());
     packet->GetHeader().Checksum() = 0;
     packet->GetHeader().Checksum() = packet->CalculateChecksum();
+    
+    std::cerr << "Packet L:" << packet->Length() << " "
+              << "S:" << packet->GetHeader().SequenceNumber() << " "
+              << "A:" << packet->GetHeader().AcknowledgementNumber()
+              << std::endl;
+    
     result.emplace_back(static_cast<std::shared_ptr<NetworkPacket> >(
         *packet));
     
