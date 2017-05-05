@@ -34,8 +34,6 @@ found among all those annoying logs!!!";
   
   std::cerr << data.first.front().GetData().first << std::endl;
 
-  
-
   service1->join();
   service2->join();
   

@@ -42,6 +42,8 @@ enum class Event {
   kFinRecv,
   kFinAckRecv,
   
+  kFinFinAckRecv, // Fin & FinAck
+  
   kFinSent,
   kSynSent,
   
@@ -79,6 +81,7 @@ std::basic_ostream<CharT, Traits> &operator<<(
     "kSynAckRecv",
     "kFinRecv",
     "kFinAckRecv",
+    "kFinFinAckRecv",
     "kFinSend",
     "kSynSent",
     "kRstRecv"
@@ -153,6 +156,7 @@ std::basic_ostream<CharT, Traits> &operator<<(
 
 class RulesOnState;
 class TransitionRule;
+
 class TcpStateMachine {
  public:
   friend class TransitionRule;
@@ -260,6 +264,9 @@ class TcpStateMachine {
   }
   
  private:
+  
+  Event ParseEvent(const TcpHeader *peer_header);
+  
   // header seq/ack check
   bool CheckSeq() const {
     std::cerr << __func__ << header_->SequenceNumber() << " ";
@@ -269,6 +276,7 @@ class TcpStateMachine {
       return false;
     if (header_->SequenceNumber() < host_last_ack_)
       return false;
+    std::cerr << "Passed" << std::endl;
     return true;
   }
   
@@ -280,6 +288,7 @@ class TcpStateMachine {
       return false;
     if (header_->AcknowledgementNumber() < host_initial_seq_)
       return false;
+    std::cerr << "Passed" << std::endl;
     return true;
   }
   
@@ -289,7 +298,7 @@ class TcpStateMachine {
   
   bool FinAckCheck() const {
     auto ret = FullCheck();
-    if (header_->AcknowledgementNumber() != host_next_seq_+1)
+    if (header_->AcknowledgementNumber() != host_next_seq_)
       ret = false; // not Fin Ack
     return ret;
   }
@@ -385,6 +394,13 @@ class TcpStateMachine {
     
     state_ = State::kClosing;
     stage_ = Stage::kClosing;
+  }
+  
+  void UpdateFinWait12Closed() {
+    FullUpdate();
+    
+    state_ = State::kClosed;
+    stage_ = Stage::kClosed;
   }
   
   void UpdateCloseWait2LastAck() {

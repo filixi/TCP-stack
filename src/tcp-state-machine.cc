@@ -105,12 +105,18 @@ std::unique_ptr<std::vector<std::pair<State, RulesOnState> > >
       TransitionRule::transition_rule_;
 std::mutex TransitionRule::mtx_;
 
-Event ParseEvent(const TcpHeader *peer_header) {
+Event TcpStateMachine::ParseEvent(const TcpHeader *peer_header) {
   if (peer_header->Rst())
     return Event::kRstRecv;
   
-  if (peer_header->Fin())
+  if (peer_header->Fin()) {
+    if (peer_header->Ack() &&
+        state_ == State::kFinWait1 &&
+        peer_header->AcknowledgementNumber() == host_next_seq_) {
+      return Event::kFinFinAckRecv;
+    }
     return Event::kFinRecv;
+  }
   
   if (peer_header->Syn()) {
     if (peer_header->Ack())
@@ -195,7 +201,7 @@ void TcpStateMachine::PrepareHeader(TcpHeader &header, uint16_t size) const {
     header.SequenceNumber() = host_initial_seq_;
   } else if (header.Fin()) {
     header.SetAck(true);
-    header.SequenceNumber() = host_next_seq_;
+    header.SequenceNumber() = host_next_seq_ - 1;
   } else if (header.Rst()) {
     assert(false);
   } else {
@@ -233,8 +239,8 @@ void TransitionRule::InitRule(RulesType *rules) {
         internal->Discard();
         internal->SendRst();
       };
-//  unused
-//  auto accept = [](TcpInternalInterface &internal){
+// unused
+//  auto accept = [](TcpInternalInterface *internal){
 //        internal->Accept();
 //      };
   auto connected = [](TcpInternalInterface *internal) {
@@ -243,8 +249,13 @@ void TransitionRule::InitRule(RulesType *rules) {
   auto response_fin = [](TcpInternalInterface *internal) {
         internal->Accept();
         internal->SendAck();
+        internal->SendFin();
       };
   auto close = [](TcpInternalInterface *internal) {
+        internal->Close();
+      };
+  auto close_with_ack = [](TcpInternalInterface *internal) {
+        internal->SendAck();
         internal->Close();
       };
   auto discard = [](TcpInternalInterface *internal) {
@@ -362,6 +373,11 @@ void TransitionRule::InitRule(RulesType *rules) {
                            &M::UpdateFinWait12Closing,
                            &M::UpdateEmpty,
                            response_fin, discard))
+      .AddRule(Event::kFinFinAckRecv, // skip kTimeWait
+               RuleOnEvent(&M::FullCheck,
+                           &M::UpdateFinWait12Closed,
+                           &M::UpdateEmpty,
+                           close, discard))
       .AddRule(Event::kRstRecv, rule_reset);
 
   transition_rules.emplace_back(State::kCloseWait, default_rule);
@@ -384,16 +400,16 @@ void TransitionRule::InitRule(RulesType *rules) {
                RuleOnEvent(&M::FullCheck,
                            &M::UpdateFinWait22Closed,
                            &M::UpdateEmpty,
-                           close, discard))
+                           close_with_ack, discard))
       .AddRule(Event::kRstRecv, rule_reset);
   
   transition_rules.emplace_back(State::kClosing, default_rule);
   transition_rules.back().second
-      .AddRule(Event::kAckRecv,
+      .AddRule(Event::kAckRecv, // skip kTimeWait
                RuleOnEvent(&M::FinAckCheck,
                            &M::UpdateClosingToClosed,
                            &M::UpdateEmpty,
-                           discard, discard))
+                           close, discard))
       .AddRule(Event::kRstRecv, rule_reset);
       
   transition_rules.emplace_back(State::kLastAck, default_rule);
@@ -402,7 +418,7 @@ void TransitionRule::InitRule(RulesType *rules) {
                RuleOnEvent(&M::FinAckCheck,
                            &M::UpdateLastAck2Closed,
                            &M::UpdateEmpty,
-                           discard, discard))
+                           close, discard))
       .AddRule(Event::kRstRecv, rule_reset);
   
   transition_rules.emplace_back(State::kTimeWait, default_rule);

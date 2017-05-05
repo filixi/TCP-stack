@@ -369,7 +369,12 @@ std::ostream &operator<<(std::ostream &o,
                          const std::shared_ptr<NetworkPacket> &ptr);
 
 std::ostream &operator<<(std::ostream &o,
+                         const TcpHeader &packet);
+
+std::ostream &operator<<(std::ostream &o,
                          const TcpPacket &packet);
+
+
 
 } // namespace tcp_simulator
 

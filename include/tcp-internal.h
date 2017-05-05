@@ -185,7 +185,8 @@ class TcpInternal : public TcpInternalInterface {
     TcpPacket packet(nullptr, nullptr);
     packet.GetHeader().SetFin(true);
     packet.GetHeader().SetAck(true);
-
+    
+    buffer_.Clear();
     AddPacketForSending(std::move(packet));
   }
   

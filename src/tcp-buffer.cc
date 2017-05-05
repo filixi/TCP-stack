@@ -35,8 +35,7 @@ std::ostream &operator<<(std::ostream &o,
 }
 
 std::ostream &operator<<(std::ostream &o,
-                         const TcpPacket &packet) {
-  const auto &header = packet.GetHeader();
+                         const TcpHeader &header) {
   if (header.Ack())
     o << "Ack ";
   if (header.Syn())
@@ -46,10 +45,17 @@ std::ostream &operator<<(std::ostream &o,
   if (header.Fin())
     o << "Fin ";
   
-  o << header.SourcePort() << "->" << header.DestinationPort() << " ";
-  o << "S" << header.SequenceNumber() << " ";
-  o << "A" << header.AcknowledgementNumber() << " ";
-  o << "L" << packet.Length() << std::endl;
+  o << header.SourcePort() << "->" << header.DestinationPort() << " "
+    << "S" << header.SequenceNumber() << " "
+    << "A" << header.AcknowledgementNumber() << " ";
+  return o;
+}
+
+std::ostream &operator<<(std::ostream &o,
+                         const TcpPacket &packet) {
+  const auto &header = packet.GetHeader();
+  o << header
+    << "L" << packet.Length();
   return o;
 }
 
