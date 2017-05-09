@@ -171,8 +171,7 @@ bool TcpStateMachine::FinSent() {
     std::cerr << "Error" << std::endl;
     return false;
   }
-  
-  ++host_next_seq_;
+
   return true;
 }
 
@@ -193,7 +192,7 @@ bool TcpStateMachine::SynSent(uint32_t seq, uint16_t window) {
   return false;
 }
 
-void TcpStateMachine::PrepareHeader(TcpHeader &header, uint16_t size) const {
+void TcpStateMachine::PrepareHeader(TcpHeader &header, uint16_t size) {
   std::cerr << __func__ << std::endl;
   header.Window() = host_window_;
   
@@ -201,7 +200,8 @@ void TcpStateMachine::PrepareHeader(TcpHeader &header, uint16_t size) const {
     header.SequenceNumber() = host_initial_seq_;
   } else if (header.Fin()) {
     header.SetAck(true);
-    header.SequenceNumber() = host_next_seq_ - 1;
+    header.SequenceNumber() = host_next_seq_;
+    ++host_next_seq_;
   } else if (header.Rst()) {
     assert(false);
   } else {
@@ -248,7 +248,6 @@ void TransitionRule::InitRule(RulesType *rules) {
       };
   auto response_fin = [](TcpInternalInterface *internal) {
         internal->Accept();
-        internal->SendAck();
         internal->SendFin();
       };
   auto close = [](TcpInternalInterface *internal) {

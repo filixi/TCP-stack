@@ -34,10 +34,7 @@ TcpInternal::GetPacketsForSending() {
     packet->GetHeader().Checksum() = 0;
     packet->GetHeader().Checksum() = packet->CalculateChecksum();
     
-    std::cerr << "Packet L:" << packet->Length() << " "
-              << "S:" << packet->GetHeader().SequenceNumber() << " "
-              << "A:" << packet->GetHeader().AcknowledgementNumber()
-              << std::endl;
+    std::cerr << "Packet sending: " << *packet << std::endl;
     
     result.emplace_back(static_cast<std::shared_ptr<NetworkPacket> >(
         *packet));

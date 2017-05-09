@@ -186,7 +186,7 @@ class TcpStateMachine {
   }
   
   // functions for preparing packet's header
-  void PrepareHeader(TcpHeader &header, uint16_t size) const;
+  void PrepareHeader(TcpHeader &header, uint16_t size);
   
   void PrepareResendHeader(TcpHeader &header, uint16_t) const {
     std::cerr << __func__ << std::endl;
@@ -200,6 +200,7 @@ class TcpStateMachine {
       return {0, false};
     
     host_next_seq_ += size;
+    std::cerr << "Seq gotten:" << host_next_seq_-size << std::endl;
     return {host_next_seq_-size, true};
   }
   

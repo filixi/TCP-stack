@@ -33,11 +33,11 @@ found among all those annoying logs!!!";
   assert(data.second);
   
   std::cerr << data.first.front().GetData().first << std::endl;
+  
+  sock2.Close();
 
   service1->join();
   service2->join();
-  
-  sock2.Close();
   
   return 0;
 }

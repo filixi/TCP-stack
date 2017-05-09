@@ -492,7 +492,7 @@ std::shared_ptr<TcpStateMachine> TestSynRcvd2FinWait1() {
   assert(machine.peer_window_ == cache.peer_window_);
   
   assert(machine.host_initial_seq_ == cache.host_initial_seq_);
-  assert(machine.host_next_seq_ == cache.host_next_seq_ + 1);
+  assert(machine.host_next_seq_ == cache.host_next_seq_);
   assert(machine.host_last_ack_ == cache.host_last_ack_);
   assert(machine.host_window_ == cache.host_window_);
   
@@ -628,6 +628,7 @@ std::shared_ptr<TcpStateMachine> TestEstab2FinWait1() {
   TcpStateMachineCache cache(machine);
 
   machine.FinSent();
+  ++machine.host_next_seq_;
   
   assert(machine.state_ == State::kFinWait1);
   
@@ -659,7 +660,7 @@ std::shared_ptr<TcpStateMachine> TestEstab2CloseWait() {
   machine.OnReceivePacket(&header, 0)(&internal);
   
   internal.AssertCalled(&TestInternal::Accept, "Estab Accept")
-          .AssertCalled(&TestInternal::SendAck, "Estab Ack")
+          .AssertCalled(&TestInternal::SendFin, "Estab Fin")
           .Clear();
   
   assert(machine.state_ == State::kCloseWait);
@@ -722,9 +723,9 @@ std::shared_ptr<TcpStateMachine> TestFinWait12FinWait2() {
           .Clear();
   
   assert(machine.state_ == State::kFinWait2);
-  
+
   assert(machine.peer_initial_seq_ == cache.peer_initial_seq_);
-  assert(machine.peer_last_ack_ == cache.peer_last_ack_ + 1);
+  assert(machine.peer_last_ack_ == header.AcknowledgementNumber());
   assert(machine.peer_window_ == cache.peer_window_);
   
   assert(machine.host_initial_seq_ == cache.host_initial_seq_);
@@ -751,7 +752,7 @@ std::shared_ptr<TcpStateMachine> TestFinWait12Closing() {
   machine.OnReceivePacket(&header, 0)(&internal);
   
   internal.AssertCalled(&TestInternal::Accept, "FinWait1 Accept")
-          .AssertCalled(&TestInternal::SendAck, "FinWait1 Ack")
+          .AssertCalled(&TestInternal::SendFin, "FinWait1 SendFin")
           .Clear();
   
   assert(machine.state_ == State::kClosing);
@@ -831,6 +832,7 @@ std::shared_ptr<TcpStateMachine> TestCloseWait2LastAck() {
   TcpStateMachineCache cache(machine);
 
   machine.FinSent();
+  ++machine.host_next_seq_;
   
   assert(machine.state_ == State::kLastAck);
   
