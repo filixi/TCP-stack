@@ -8,9 +8,16 @@ void ResendPacket::OnEvent() {
   auto packet = packet_.lock();
   auto internal = internal_.lock();
   if (packet != nullptr && internal != nullptr) {
+    std::cout << internal->Id() << "Resending: " << TcpPacket(packet)
+              << std::endl;
+    
     internal_.lock()->PreparePacketForResending(packet);
     manager_.AddToResendList(std::move(packet));
   }
+}
+
+void CloseInternal::OnEvent() {
+  manager_.CloseInternal(id_);
 }
 
 int TcpManager::CloseInternal(uint64_t id) {
@@ -38,7 +45,7 @@ int TcpManager::CloseInternal(uint64_t id) {
     }
   }
   
-  std::cerr << "internal erased" << std::endl;
+  std::cerr << id << "internal erased" << std::endl;
   return ret;
 }
 
@@ -77,10 +84,13 @@ void TcpManager::Multiplexing(std::shared_ptr<NetworkPacket> packet,
     internal->ReceivePacket(std::move(tcp_packet));
     std::cerr << "internal has received packet" << std::endl;
     if (internal->GetState() == State::kClosed) {
-      
       CloseInternal(internal->Id());
-      std::cerr << "internal erased" << std::endl;
       return ;
+    } else if (internal->GetState() == State::kTimeWait) {
+      AddEvent(std::chrono::steady_clock::now() +
+                   std::chrono::milliseconds(20000),
+               std::make_shared<tcp_simulator::CloseInternal>(
+                   *this, internal->Id()));
     }
   }
 }

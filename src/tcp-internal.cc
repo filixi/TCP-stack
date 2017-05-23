@@ -39,7 +39,8 @@ TcpInternal::GetPacketsForSending() {
     result.emplace_back(static_cast<std::shared_ptr<NetworkPacket> >(
         *packet));
     
-    if (packet->Length() > 0 || state_!= State::kEstab) {
+    if (packet->Length() > 0 || packet->GetHeader().Syn() ||
+        packet->GetHeader().Fin()) {
       std::cerr << "Packet moved to resend buffer" << std::endl;
       buffer_.MoveFrontWriteToUnack();
     } else {
@@ -76,6 +77,8 @@ void TcpInternal::ReceivePacket(TcpPacket packet) {
   }
   current_packet_ = std::move(packet);
   auto size = current_packet_.Length();
+  
+  std::cerr << "#" << id_ << state_;
   
   auto react = state_.OnReceivePacket(&current_packet_.GetHeader(), size);
   std::cerr << "Reacting" << std::endl;

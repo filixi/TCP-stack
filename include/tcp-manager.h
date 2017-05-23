@@ -48,16 +48,26 @@ class ResendPacket : public TimeoutEvent {
 };
 
 
-class CloseInternal : TimeoutEvent {
+class CloseInternal : public TimeoutEvent {
  public:
-  void OnEvent() override {
-    
+  CloseInternal(TcpManager &manager, uint64_t id)
+      : manager_(manager), id_(id) {}
+        
+  void OnEvent() override;
+  
+  std::pair<std::chrono::time_point<std::chrono::steady_clock>, bool>
+  Reschedule() override {
+    return {std::chrono::steady_clock::now(), false};
   }
+  
+  TcpManager &manager_;
+  uint64_t id_;
 };
 
 class TcpManager {
  public:
   friend class ResendPacket;
+  friend class CloseInternal;
   
   TcpManager() = default;
   TcpManager(const TcpManager &) = delete;

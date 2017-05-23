@@ -88,9 +88,13 @@ void NetworkService::Run(std::promise<void> running) {
     for (auto &packet : packets_for_sending) {
       char *begin = nullptr, *end = nullptr;
       std::tie(begin, end) = packet->GetBuffer();
-      sendto(host_socket, begin, static_cast<size_t>(end-begin), 0,
-             (sockaddr *)&peer_addr_, sizeof(sockaddr_in));
-      std::cerr << "Send packet" << std::endl;
+      if (rand()%5 < 4) {
+        sendto(host_socket, begin, static_cast<size_t>(end-begin), 0,
+               (sockaddr *)&peer_addr_, sizeof(sockaddr_in));
+        std::cerr << "Send packet" << std::endl;
+      } else {
+        std::cerr << "Packet lost" << std::endl;
+      }
     }
     packets_for_sending.clear();
     

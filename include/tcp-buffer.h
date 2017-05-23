@@ -95,6 +95,40 @@ class Field {
 
 class TcpHeader {
  public:
+  uint32_t &SourceAddress() {
+    return const_cast<uint32_t &>(
+        static_cast<const TcpHeader *>(this)->SourceAddress());
+  }
+  const uint32_t &SourceAddress() const {
+    return prefixed_field_.At<uint32_t>(0);
+  }
+  
+  uint32_t &DestinationAddress() {
+    return const_cast<uint32_t &>(
+        static_cast<const TcpHeader *>(this)->DestinationAddress());
+  }
+  const uint32_t &DestinationAddress() const {
+    return prefixed_field_.At<uint32_t>(32);
+  }
+  
+  // zero
+  
+  uint8_t &PTCL() {
+    return const_cast<uint8_t &>(
+        static_cast<const TcpHeader *>(this)->PTCL());
+  }
+  const uint8_t &PTCL() const {
+    return prefixed_field_.At<uint8_t>(72);
+  }
+  
+  uint16_t &TcpLength() {
+    return const_cast<uint16_t &>(
+        static_cast<const TcpHeader *>(this)->TcpLength());
+  }
+  const uint16_t &TcpLength() const {
+    return prefixed_field_.At<uint16_t>(80);
+  }
+  
   uint16_t &SourcePort() {
     return const_cast<uint16_t &>(
         static_cast<const TcpHeader *>(this)->SourcePort());
@@ -200,6 +234,7 @@ class TcpHeader {
   }
   
  private:
+  Field<3> prefixed_field_;
   Field<5> field_;
 };
 
@@ -353,6 +388,7 @@ class TcpBuffer {
   }
   
   void Clear() {
+    std::cerr << "TcpBuffer cleared" << unack_packets_.size() << std::endl;
     read_buffer_.clear();
     write_buffer_.clear();
     unack_packets_.clear();
@@ -373,8 +409,6 @@ std::ostream &operator<<(std::ostream &o,
 
 std::ostream &operator<<(std::ostream &o,
                          const TcpPacket &packet);
-
-
 
 } // namespace tcp_simulator
 

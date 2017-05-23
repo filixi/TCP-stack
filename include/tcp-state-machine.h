@@ -378,6 +378,14 @@ class TcpStateMachine {
     stage_ = Stage::kClosing;
   }
   
+  void UpdateEstab2LastAck() {
+    FullUpdate();
+    host_last_ack_ = header_->SequenceNumber() + 1;
+    
+    state_ = State::kLastAck;
+    stage_ = Stage::kClosing;
+  }
+  
   void UpdateEstab2FinWait1() {
     state_ = State::kFinWait1;
     stage_ = Stage::kClosing;
@@ -397,11 +405,12 @@ class TcpStateMachine {
     stage_ = Stage::kClosing;
   }
   
-  void UpdateFinWait12Closed() {
+  void UpdateFinWait12TimeWait() {
     FullUpdate();
+    ++host_last_ack_;
     
-    state_ = State::kClosed;
-    stage_ = Stage::kClosed;
+    state_ = State::kTimeWait;
+    stage_ = Stage::kClosing;
   }
   
   void UpdateCloseWait2LastAck() {
@@ -409,18 +418,18 @@ class TcpStateMachine {
     stage_ = Stage::kClosing;
   }
   
-  void UpdateFinWait22Closed() {
+  void UpdateFinWait22TimeWait() {
     UpdateEstab2CloseWait();
     
-    state_ = State::kClosed;
-    stage_ = Stage::kClosed;
+    state_ = State::kTimeWait;
+    stage_ = Stage::kClosing;
   }
   
-  void UpdateClosingToClosed() {
+  void UpdateClosingToTimeWait() {
     FullUpdate();
     
-    state_ = State::kClosed;
-    stage_ = Stage::kClosed;
+    state_ = State::kTimeWait;
+    stage_ = Stage::kClosing;
   }
   
   void UpdateLastAck2Closed() {

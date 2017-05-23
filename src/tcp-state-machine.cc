@@ -239,10 +239,9 @@ void TransitionRule::InitRule(RulesType *rules) {
         internal->Discard();
         internal->SendRst();
       };
-// unused
-//  auto accept = [](TcpInternalInterface *internal){
-//        internal->Accept();
-//      };
+  auto accept = [](TcpInternalInterface *internal){
+        internal->Accept();
+      };
   auto connected = [](TcpInternalInterface *internal) {
         internal->NotifyOnConnected();
       };
@@ -251,10 +250,6 @@ void TransitionRule::InitRule(RulesType *rules) {
         internal->SendFin();
       };
   auto close = [](TcpInternalInterface *internal) {
-        internal->Close();
-      };
-  auto close_with_ack = [](TcpInternalInterface *internal) {
-        internal->SendAck();
         internal->Close();
       };
   auto discard = [](TcpInternalInterface *internal) {
@@ -348,9 +343,9 @@ void TransitionRule::InitRule(RulesType *rules) {
                            &M::UpdateEstab2Estab,
                            &M::UpdateEmpty,
                            send_cond_ack, discard))
-      .AddRule(Event::kFinRecv,
+      .AddRule(Event::kFinRecv, // skip ClostWait
                RuleOnEvent(&M::FullCheck,
-                           &M::UpdateEstab2CloseWait,
+                           &M::UpdateEstab2LastAck,
                            &M::UpdateEmpty,
                            response_fin, discard))
       .AddRule(Event::kFinSent,
@@ -372,11 +367,11 @@ void TransitionRule::InitRule(RulesType *rules) {
                            &M::UpdateFinWait12Closing,
                            &M::UpdateEmpty,
                            response_fin, discard))
-      .AddRule(Event::kFinFinAckRecv, // skip kTimeWait
+      .AddRule(Event::kFinFinAckRecv,
                RuleOnEvent(&M::FullCheck,
-                           &M::UpdateFinWait12Closed,
+                           &M::UpdateFinWait12TimeWait,
                            &M::UpdateEmpty,
-                           close, discard))
+                           send_ack, discard))
       .AddRule(Event::kRstRecv, rule_reset);
 
   transition_rules.emplace_back(State::kCloseWait, default_rule);
@@ -395,20 +390,20 @@ void TransitionRule::InitRule(RulesType *rules) {
                            &M::UpdateEmpty,
                            &M::UpdateEmpty,
                            discard, discard))
-      .AddRule(Event::kFinRecv, // skip kTimeWait
+      .AddRule(Event::kFinRecv,
                RuleOnEvent(&M::FullCheck,
-                           &M::UpdateFinWait22Closed,
+                           &M::UpdateFinWait22TimeWait,
                            &M::UpdateEmpty,
-                           close_with_ack, discard))
+                           send_ack, discard))
       .AddRule(Event::kRstRecv, rule_reset);
   
   transition_rules.emplace_back(State::kClosing, default_rule);
   transition_rules.back().second
-      .AddRule(Event::kAckRecv, // skip kTimeWait
+      .AddRule(Event::kAckRecv,
                RuleOnEvent(&M::FinAckCheck,
-                           &M::UpdateClosingToClosed,
+                           &M::UpdateClosingToTimeWait,
                            &M::UpdateEmpty,
-                           close, discard))
+                           accept, discard))
       .AddRule(Event::kRstRecv, rule_reset);
       
   transition_rules.emplace_back(State::kLastAck, default_rule);
