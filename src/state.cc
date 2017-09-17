@@ -1,5 +1,7 @@
 #include "state.h"
 
+namespace tcp_stack {
+namespace {
 inline bool IsAck(const TcpHeader &header) {
   return header.Ack() && !header.Syn() && !header.Fin();
 }
@@ -28,6 +30,8 @@ inline bool IsAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
 inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
   return IsAckInRange(header, b) && IsSeqInRange(header, b);
 }
+
+} // anonymous namespace
 
 Closed::TriggerType Closed::operator()(
     Event event, TcpHeader *, TcpControlBlock &b) {
@@ -142,6 +146,8 @@ SynSent::TriggerType SynSent::operator()(
 Estab::TriggerType Estab::operator()(
     Event event, TcpHeader *header, TcpControlBlock &b) {
   if (event == Event::kSend) {
+    assert(header);
+    
     if (b.snd_nxt + header->TcpLength() >= b.snd_wnd)
       return {[wnd = b.snd_wnd](TcpInternalInterface *tcp) {
             tcp->SeqOutofRange(wnd);
@@ -296,3 +302,5 @@ TimeWait::TriggerType TimeWait::operator()(
     const TcpHeader &, TcpControlBlock &) {
   return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
 }
+
+} // namespace tcp_stack
