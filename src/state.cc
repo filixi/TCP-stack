@@ -147,7 +147,7 @@ Estab::TriggerType Estab::operator()(
     Event event, TcpHeader *header, TcpControlBlock &b) {
   if (event == Event::kSend) {
     assert(header);
-    
+
     if (b.snd_nxt + header->TcpLength() >= b.snd_wnd)
       return {[wnd = b.snd_wnd](TcpInternalInterface *tcp) {
             tcp->SeqOutofRange(wnd);
@@ -198,14 +198,16 @@ FinWait1::TriggerType FinWait1::operator()(
 
 FinWait1::TriggerType FinWait1::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
+  if (IsAck(header) && IsAckInRange(header, b) && 
+      (header.SequenceNumber() == b.rcv_nxt ||
+       header.SequenceNumber() == b.rcv_nxt+1)) {
     if (header.AcknowledgementNumber() == b.snd_nxt) // ack fin
       return {[](TcpInternalInterface *tcp) { tcp->Accept(); },
               &b.state.emplace<FinWait2>()};
     else
       return {[](TcpInternalInterface *tcp) { tcp->Accept(); }, this};
   } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
-    return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
+    return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
             TcpInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
