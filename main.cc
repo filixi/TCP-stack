@@ -68,7 +68,7 @@ public:
   }
 
   template <class T, class Rep, class Period>
-  std::shared_ptr<Handle> PushEventWithFeedBack(
+  auto PushEventWithFeedBack(
       std::function<T()> event,
       std::chrono::duration<Rep, Period> timeout_duration) {
     std::promise<T> result_promise;
