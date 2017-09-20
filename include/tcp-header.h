@@ -4,7 +4,7 @@
 namespace tcp_stack {
 template <size_t size>
 class Field {
- public:
+public:
   static constexpr size_t kSize = size;
   
   Field() : field_{0} {}
@@ -37,12 +37,12 @@ class Field {
         reinterpret_cast<const uint8_t *>(field_)[pos/8]);
   }
   
- private:
+private:
   uint32_t field_[size];
 };
 
 class TcpHeader {
- public:
+public:
   uint32_t &SourceAddress() {
     return const_cast<uint32_t &>(
         static_cast<const TcpHeader *>(this)->SourceAddress());
@@ -177,7 +177,7 @@ class TcpHeader {
     return field_.At<uint16_t>(142);
   }
 
- private:
+private:
   Field<3> prefixed_field_;
   Field<5> field_;
 };

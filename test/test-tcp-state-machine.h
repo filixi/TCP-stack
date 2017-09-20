@@ -111,12 +111,11 @@ private:
 };
 
 auto GetReturn(std::function<void(TcpInternalInterface *)> react,
-               TcpStateManager tcp)
-    -> std::function<TcpStateManager(TcpInternalInterface *)> {
-  return [=](TcpInternalInterface *internal) mutable {
+               TcpStateManager tcp) {
+  return std::function([=](TcpInternalInterface *internal) mutable {
         react(internal);
         return tcp;
-      };
+      });
 }
 
 auto TestConnection(State state = State::kClosed) {

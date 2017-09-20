@@ -80,7 +80,7 @@ public:
 struct TcpControlBlock;
 
 class TcpState {
- public:
+public:
   using ReactType = std::function<void(TcpInternalInterface *)>;
   using TriggerType = std::pair<ReactType, TcpState *>;
 
@@ -93,7 +93,7 @@ class TcpState {
 };
 
 class Closed final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -104,7 +104,7 @@ class Closed final : public TcpState {
 };
 
 class Listen final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -115,7 +115,7 @@ class Listen final : public TcpState {
 };
 
 class SynRcvd final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -126,7 +126,7 @@ class SynRcvd final : public TcpState {
 };
 
 class SynSent final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -137,7 +137,7 @@ class SynSent final : public TcpState {
 };
 
 class Estab final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -148,7 +148,7 @@ class Estab final : public TcpState {
 };
 
 class FinWait1 final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -159,7 +159,7 @@ class FinWait1 final : public TcpState {
 };
 
 class CloseWait final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -170,7 +170,7 @@ class CloseWait final : public TcpState {
 };
 
 class FinWait2 final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -181,7 +181,7 @@ class FinWait2 final : public TcpState {
 };
 
 class Closing final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -192,7 +192,7 @@ class Closing final : public TcpState {
 };
 
 class LastAck final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -203,7 +203,7 @@ class LastAck final : public TcpState {
 };
 
 class TimeWait final : public TcpState {
- public:
+public:
   TriggerType operator()(Event, TcpHeader *, TcpControlBlock &) override;
 
   TriggerType operator()(const TcpHeader &, TcpControlBlock &) override;
@@ -228,7 +228,17 @@ struct TcpControlBlock {
 };
 
 class TcpStateManager {
- public:
+public:
+  TcpStateManager() = default;
+
+  TcpStateManager(const TcpStateManager &x)
+      : block_(x.block_),
+        state_(std::visit([](auto &arg) {
+            return static_cast<TcpState *>(&arg);
+          }, block_.state)) {}
+  
+  TcpStateManager &operator=(const TcpStateManager &) = delete;
+
   TcpState::ReactType operator()(Event event, TcpHeader *header) {
     auto [react, new_state] = state_->operator()(event, header, block_);
     state_ = new_state;
@@ -256,7 +266,7 @@ class TcpStateManager {
     return block_.rcv_wnd;
   }
 
- private:
+private:
   TcpControlBlock block_;
   TcpState *state_ = &std::get<Closed>(block_.state);
 };
