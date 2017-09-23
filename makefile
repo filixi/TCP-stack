@@ -5,7 +5,7 @@ LIB = -lpthread
 
 INCLUDE = -I include/
 
-OBJS = state.o
+OBJS = state.o timeout-queue.o
 
 main : $(OBJS)
 	$(CC) $(FLAG) $(OBJS) main.cc $(INCLUDE) $(LIB)
