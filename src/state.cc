@@ -265,6 +265,7 @@ FinWait2::TriggerType FinWait2::operator()(
             SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
+          tcp->TimeWait();
         }, &b.state.emplace<TimeWait>()};
   }
 
