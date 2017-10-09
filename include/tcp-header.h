@@ -1,6 +1,8 @@
 #ifndef _TCP_STATE_MACHINE_TCP_HEADER_H_
 #define _TCP_STATE_MACHINE_TCP_HEADER_H_
 
+#include <memory>
+
 namespace tcp_stack {
 template <size_t size>
 class Field {
@@ -181,6 +183,80 @@ private:
   Field<3> prefixed_field_;
   Field<5> field_;
 };
+
+class TcpPacket {
+public:
+  TcpPacket(TcpPacket &&) = default;
+  TcpPacket &operator=(TcpPacket &&) = default;
+
+  auto &GetHeader() {
+    return reinterpret_cast<TcpHeader &>(*buff_.get());
+  }
+
+  auto &GetHeader() const {
+    return reinterpret_cast<const TcpHeader &>(*buff_.get());
+  }
+
+  char *begin() {
+    return buff_.get() + sizeof(TcpHeader);
+  }
+
+  const char *begin() const {
+    return buff_.get() + sizeof(TcpHeader);
+  }
+
+  char *end() {
+    return buff_.get() + size_;
+  }
+
+  const char *end() const {
+    return buff_.get() + size_;
+  }
+
+  friend uint16_t CalculateChecksum(const TcpPacket &packet) {
+    uint32_t checksum = 0;
+    uint16_t * const buffer = reinterpret_cast<uint16_t *>(packet.buff_.get());
+    const auto size = packet.size_;
+    size_t i = 0;
+    for (; i<size/2; ++i)
+      checksum += buffer[i];
+    if (size%2)
+      checksum += buffer[size-1];
+
+    return static_cast<uint16_t>(~checksum);
+  }
+
+protected:
+  TcpPacket(size_t size)
+      : size_(size + sizeof(TcpHeader)), buff_(new char[size_]) {}
+  
+  TcpPacket(const char *buff, size_t size)
+      : size_(size + sizeof(TcpHeader)), buff_(new char[size_]) {
+    std::copy(buff, buff+size, begin());
+  }
+
+private:
+  TcpPacket(const TcpPacket &) = delete;
+  TcpPacket &operator=(const TcpPacket &) = delete;
+
+  size_t size_;
+  std::unique_ptr<char []> buff_;
+};
+
+inline std::shared_ptr<TcpPacket> MakeTcpPacket(size_t size) {
+  struct EnableMake : TcpPacket {
+    EnableMake(size_t size) : TcpPacket(size) {}
+  };
+  return std::make_shared<EnableMake>(size);
+}
+
+inline std::shared_ptr<TcpPacket> MakeTcpPacket(
+    const char *buff, size_t size) {
+  struct EnableMake : TcpPacket {
+    EnableMake(const char *buff, size_t size) : TcpPacket(buff, size) {}
+  };
+  return std::make_shared<EnableMake>(buff, size);
+}
 
 } // namespace tcp_stack
 

@@ -21,7 +21,16 @@ void TimeoutQueue::Worker() {
     new_event_.wait_until(lock, next_timeout, [this] {return quit_.load();});
     if (!quit_.load() && next_timeout <= Clock::now()) {
       lock.unlock();
-      next_event();
+      const auto is_repeat = next_event.function();
+
+      if (is_repeat) {
+        next_timeout += next_event.period;
+
+        lock.lock();
+        time_out_queue_.insert(std::move(node));
+        new_event_.notify_one();
+      }
+
       --events_out_of_queue_;
     } else {
       time_out_queue_.insert(std::move(node));

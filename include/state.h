@@ -54,7 +54,7 @@ enum class Event {
   kClose
 };
 
-class TcpInternalInterface {
+class SocketInternalInterface {
 public:
   virtual void SendSyn(uint32_t seq, uint16_t window) = 0;
   virtual void SendSynAck(uint32_t seq, uint32_t ack, uint16_t window) = 0;
@@ -67,6 +67,9 @@ public:
   virtual void RecvFin(
       uint32_t seq_recv, uint32_t ack_recv, uint16_t window_recv) = 0;
 
+  virtual void Listen() = 0;
+  virtual void Connected() = 0;
+
   virtual void Accept() = 0;
   virtual void Discard() = 0;
   virtual void SeqOutofRange(uint16_t window) = 0;
@@ -75,13 +78,15 @@ public:
   virtual void InvalidOperation() = 0;
 
   virtual void NewConnection() = 0;
+  virtual void Close() = 0;
+  virtual void TimeWait() = 0;
 };
 
 struct TcpControlBlock;
 
 class TcpState {
 public:
-  using ReactType = std::function<void(TcpInternalInterface *)>;
+  using ReactType = std::function<void(SocketInternalInterface *)>;
   using TriggerType = std::pair<ReactType, TcpState *>;
 
   virtual ~TcpState() = default;
@@ -251,19 +256,41 @@ public:
     return react;
   }
 
+  TcpState::ReactType InvalideCheckSum() {
+    const auto &b = block_;
+    return [seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
+            SocketInternalInterface *tcp) {
+          tcp->Discard();
+          tcp->SendAck(seq, ack, wnd);
+        };
+  }
+
   auto GetState() const {
     return state_->GetState();
+  }
+
+  const auto &GetControlBlock() const {
+    return block_;
   }
 
   auto &Window() {
     return block_.snd_wnd;
   }
-  const auto &Window() const {
+  auto &Window() const {
     return block_.snd_wnd;
   }
 
   auto PeerWindow() const {
     return block_.rcv_wnd;
+  }
+
+  auto GetNextSend() const {
+    return block_.snd_nxt;
+  }
+
+  void Reset() {
+    block_ = TcpControlBlock();
+    state_ = &std::get<Closed>(block_.state);
   }
 
 private:

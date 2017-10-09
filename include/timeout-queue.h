@@ -14,31 +14,19 @@ class TimeoutQueue {
 public:
   using Clock = std::chrono::steady_clock;
   using TimePoint = Clock::time_point;
-  using Event = StackFunction<void()>;
+  using FunctionType = StackFunction<bool()>;
+
+  struct Event {
+    FunctionType function;
+    std::chrono::nanoseconds period;
+  };
+
   using EventQueue = std::multimap<TimePoint, Event>;
 
   using MutexType = std::mutex;
   template <class T>
   using UniqueLockType = std::unique_lock<T>;
   using ConditionVariableType = std::condition_variable;
-
-  template <class T>
-  class Handle {
-  public:
-    friend class TimeoutQueue;
-    auto &Future() {
-      return future_;
-    }
-
-    void Cancel() {
-      cancel_.store(true);
-    }
-
-  private:
-    std::promise<T> promise_;
-    std::future<T> future_ = promise_.get_future();
-    std::atomic<bool> cancel_{false};
-  };
 
   TimeoutQueue() = default;
 
@@ -57,40 +45,11 @@ public:
 
   template <class Fn, class Rep, class Period>
   void PushEvent(Fn fn, std::chrono::duration<Rep, Period> timeout_duration) {
-    const auto timeout_point = Clock::now() + timeout_duration;
-    auto refined_event = [event = std::move(fn)] {event();};
-
     std::lock_guard guard(mtx_);
-    time_out_queue_.emplace(timeout_point, std::move(refined_event));
+    time_out_queue_.emplace(Clock::now() + timeout_duration,
+                            Event{.function = std::move(fn),
+                                  .period = timeout_duration});
     new_event_.notify_one();
-  }
-
-  template <class Fn, class Rep, class Period>
-  auto PushEventWithFeedBack(
-      Fn fn, std::chrono::duration<Rep, Period> timeout_duration) {
-    using ResultType = std::invoke_result_t<Fn>;
-    const auto timeout_point = Clock::now() + timeout_duration;
-
-    auto handle = std::make_shared<Handle<ResultType>>();
-
-    auto refined_event = [event = std::move(fn), handle] {
-          if (!handle->cancel_.load()) {
-            if constexpr (std::is_same_v<ResultType, void>) {
-              event();
-              handle->promise_.set_value();
-            } else {
-              handle->promise_.set_value(event());
-            }
-          }
-        };
-
-    {
-      std::lock_guard guard(mtx_);
-      time_out_queue_.emplace(timeout_point, std::move(refined_event));
-      new_event_.notify_one();
-    }
-
-    return handle;
   }
 
   void Quit() {

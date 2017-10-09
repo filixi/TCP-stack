@@ -73,23 +73,21 @@ private:
   std::vector<unsigned char> buff_;
 };
 
-template <class Fn>
+template <class Fn, size_t size = 64,
+          size_t align = alignof(std::aligned_storage_t<size>)>
 class StackFunction;
 
-template <class Ret, class... Args>
-class StackFunction<Ret(Args...)> {
+template <class Ret, class... Args, size_t size, size_t align>
+class StackFunction<Ret(Args...), size, align> {
 public:
   using CallableBaseType = CallableBase<Ret, Args...>;
   template <class Fn>
-  using CallableType =
-      Callable<std::remove_const_t<std::remove_reference_t<Fn>>, Ret, Args...>;
-  static constexpr size_t kStaticStorageSize = 64;
-  static constexpr size_t kStaticStorageAlign = 8;
-  using StaticBufferType =
-      std::aligned_storage_t<kStaticStorageSize, kStaticStorageAlign>;
+  using CallableType = Callable<
+      std::remove_const_t<std::remove_reference_t<Fn>>, Ret, Args...>;
+  using StaticBufferType = std::aligned_storage_t<size, align>;
 
   template <class Fn>
-  explicit StackFunction(Fn &&fn)
+  StackFunction(Fn &&fn)
       noexcept (std::is_nothrow_constructible_v<
                     std::remove_const_t<std::remove_reference_t<Fn>>, Fn> &&
                 sizeof(CallableType<Fn>) <= sizeof(StaticBufferType))

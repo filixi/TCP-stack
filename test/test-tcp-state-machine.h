@@ -10,7 +10,7 @@
 using namespace tcp_stack;
 using namespace std::literals::string_literals;
 
-class TestInternal : public TcpInternalInterface {
+class TestInternal : public SocketInternalInterface {
 public:
   void SendSyn(uint32_t seq, uint16_t window) override {
     called_.push_back(__func__);
@@ -52,6 +52,7 @@ public:
   void RecvSyn(uint32_t seq_recv, uint16_t window_recv) override {
     called_.push_back(__func__);
   }
+
   void RecvAck(
       uint32_t seq_recv, uint32_t ack_recv, uint16_t window_recv) override {
     called_.push_back(__func__);
@@ -59,6 +60,14 @@ public:
 
   void RecvFin(
       uint32_t seq_recv, uint32_t ack_recv, uint16_t window_recv) override {
+    called_.push_back(__func__);
+  }
+
+  void Listen() override {
+    called_.push_back(__func__);
+  }
+
+  void Connected() override {
     called_.push_back(__func__);
   }
 
@@ -86,6 +95,10 @@ public:
     called_.push_back(__func__);
   }
 
+  void Close() override {
+    called_.push_back(__func__);
+  }
+
   const auto &GetCalled() const {
     return called_;
   }
@@ -110,9 +123,9 @@ private:
   TcpHeader header_;
 };
 
-auto GetReturn(std::function<void(TcpInternalInterface *)> react,
+auto GetReturn(std::function<void(SocketInternalInterface *)> react,
                TcpStateManager tcp) {
-  return std::function([=](TcpInternalInterface *internal) mutable {
+  return std::function([=](SocketInternalInterface *internal) mutable {
         react(internal);
         return tcp;
       });
@@ -126,7 +139,8 @@ auto TestConnection(State state = State::kClosed) {
   TestInternal internal1, internal2;
 
   auto react = tcp1(Event::kConnect, nullptr);
-  return GetReturn(react, tcp1);
+  if (state == State::kSynSent)
+    return GetReturn(react, tcp1);
   react(&internal1);
   assert(internal1[-1] == "SendSyn"s);
   assert(tcp1.GetState() == State::kSynSent);
@@ -143,8 +157,9 @@ auto TestConnection(State state = State::kClosed) {
   if (state == State::kEstab)
     return GetReturn(react, tcp1);
   react(&internal1);
-  assert(internal1[-1] == "SendAck"s);
-  assert(internal1[-2] == "Accept"s);
+  assert(internal1[-1] == "Connected"s);
+  assert(internal1[-2] == "SendAck"s);
+  assert(internal1[-3] == "Accept"s);
   assert(tcp1.GetState() == State::kEstab);
   
   // tcp1 : ESTAB -> CLOSEWAIT/FINWAIT-1 ...
@@ -210,7 +225,8 @@ auto TestConnection(State state = State::kClosed) {
   }();
 
   tcp2(internal1.GetHeader())(&internal2);
-  assert(internal2[-1] == "Accept"s);
+  assert(internal2[-1] == "Connected"s);
+  assert(internal2[-2] == "Accept"s);
   assert(tcp2.GetState() == State::kEstab);
 
   react = tcp2(Event::kClose, nullptr);

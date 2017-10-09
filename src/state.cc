@@ -35,19 +35,23 @@ inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
 
 Closed::TriggerType Closed::operator()(
     Event event, TcpHeader *, TcpControlBlock &b) {
-  if (event == Event::kListen)
-    return {[](auto) {}, &b.state.emplace<Listen>()};
-  else if (event == Event::kConnect) {
+  if (event == Event::kListen) {
+    return {[](SocketInternalInterface *tcp) {
+          tcp->Listen();
+        }, &b.state.emplace<Listen>()};
+  } else if (event == Event::kConnect) {
     b.snd_seq = 10;
     b.snd_una = b.snd_seq + 1;
     b.snd_nxt = b.snd_seq + 1;
     b.snd_wnd = 1024;
-    return {[seq = b.snd_seq, wnd = b.snd_wnd](TcpInternalInterface *tcp) {
+    return {[seq = b.snd_seq, wnd = b.snd_wnd](SocketInternalInterface *tcp) {
           tcp->SendSyn(seq, wnd);
         }, &b.state.emplace<SynSent>()};
+  } else if (event == Event::kClose) {
+    return {[](SocketInternalInterface *tcp) {tcp->Close();}, this};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 Closed::TriggerType Closed::operator()(
@@ -62,13 +66,13 @@ Closed::TriggerType Closed::operator()(
     b.rcv_wnd = header.Window();
 
     return {[seq = b.snd_seq, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendSynAck(seq, ack, wnd);
         }, &b.state.emplace<SynRcvd>()};
   }
 
-  return {[seq = header.AcknowledgementNumber()](TcpInternalInterface *tcp) {
+  return {[seq = header.AcknowledgementNumber()](SocketInternalInterface *tcp) {
         tcp->Discard();
         tcp->SendRst(seq);
       }, this};
@@ -77,47 +81,50 @@ Closed::TriggerType Closed::operator()(
 Listen::TriggerType Listen::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
   // Initiate connection from Listen is forbiden.
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 Listen::TriggerType Listen::operator()(
     const TcpHeader &header, TcpControlBlock &) {
   if (header.Syn() && !header.Ack()) {
-    return {[](TcpInternalInterface *tcp) {
+    return {[](SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->NewConnection();
         }, this};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 SynRcvd::TriggerType SynRcvd::operator()(
     Event event, TcpHeader *, TcpControlBlock &b) {
   if (event == Event::kClose) {
     return {[seq = b.snd_nxt++, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp){
+            SocketInternalInterface *tcp){
           tcp->SendFin(seq, ack, wnd);
         }, &b.state.emplace<FinWait1>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 SynRcvd::TriggerType SynRcvd::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsAck(header) && IsSeqAckInRange(header, b)) {
     b.snd_una = header.AcknowledgementNumber() + 1;
-    return {[](TcpInternalInterface *tcp) {tcp->Accept();},
+    return {[](SocketInternalInterface *tcp) {
+              tcp->Accept();
+              tcp->Connected();
+            },
             &b.state.emplace<Estab>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 SynSent::TriggerType SynSent::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 SynSent::TriggerType SynSent::operator()(
@@ -126,7 +133,7 @@ SynSent::TriggerType SynSent::operator()(
     b.rcv_nxt = header.SequenceNumber() + 1;
     b.rcv_wnd = header.Window();
     return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, &b.state.emplace<SynRcvd>()};
@@ -134,13 +141,14 @@ SynSent::TriggerType SynSent::operator()(
     b.rcv_nxt = header.SequenceNumber() + 1;
     b.rcv_wnd = header.Window();
     return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
+          tcp->Connected();
         }, &b.state.emplace<Estab>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 Estab::TriggerType Estab::operator()(
@@ -149,7 +157,7 @@ Estab::TriggerType Estab::operator()(
     assert(header);
 
     if (b.snd_nxt + header->TcpLength() >= b.snd_wnd)
-      return {[wnd = b.snd_wnd](TcpInternalInterface *tcp) {
+      return {[wnd = b.snd_wnd](SocketInternalInterface *tcp) {
             tcp->SeqOutofRange(wnd);
           }, this};
 
@@ -162,12 +170,12 @@ Estab::TriggerType Estab::operator()(
     return {[](auto) {}, this};
   } else if (event == Event::kClose) {
     return {[seq = b.snd_nxt++, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->SendFin(seq, ack, wnd);
         }, &b.state.emplace<FinWait1>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 Estab::TriggerType Estab::operator()(
@@ -176,24 +184,24 @@ Estab::TriggerType Estab::operator()(
     b.snd_una = header.AcknowledgementNumber();
     b.rcv_nxt = header.SequenceNumber() + header.TcpLength();
     return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, this};
   } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
     return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, &b.state.emplace<CloseWait>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 FinWait1::TriggerType FinWait1::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 FinWait1::TriggerType FinWait1::operator()(
@@ -202,31 +210,31 @@ FinWait1::TriggerType FinWait1::operator()(
       (header.SequenceNumber() == b.rcv_nxt ||
        header.SequenceNumber() == b.rcv_nxt+1)) {
     if (header.AcknowledgementNumber() == b.snd_nxt) // ack fin
-      return {[](TcpInternalInterface *tcp) { tcp->Accept(); },
+      return {[](SocketInternalInterface *tcp) { tcp->Accept(); },
               &b.state.emplace<FinWait2>()};
     else
-      return {[](TcpInternalInterface *tcp) { tcp->Accept(); }, this};
+      return {[](SocketInternalInterface *tcp) { tcp->Accept(); }, this};
   } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
     return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, &b.state.emplace<Closing>()};
   }
 
-  return {[](TcpInternalInterface *tcp) { tcp->Discard(); }, this};
+  return {[](SocketInternalInterface *tcp) { tcp->Discard(); }, this};
 }
 
 CloseWait::TriggerType CloseWait::operator()(
     Event event, TcpHeader *, TcpControlBlock &b) {
   if (event == Event::kClose) {
     return {[seq = b.snd_nxt++, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->SendFin(seq, ack, wnd);
         }, &b.state.emplace<LastAck>()};
   }
   
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 CloseWait::TriggerType CloseWait::operator()(
@@ -236,15 +244,15 @@ CloseWait::TriggerType CloseWait::operator()(
     b.rcv_nxt = header.SequenceNumber();
     b.rcv_wnd = header.Window();
 
-    return {[](TcpInternalInterface *tcp) {tcp->Accept();}, this};
+    return {[](SocketInternalInterface *tcp) {tcp->Accept();}, this};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 FinWait2::TriggerType FinWait2::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 FinWait2::TriggerType FinWait2::operator()(
@@ -254,55 +262,59 @@ FinWait2::TriggerType FinWait2::operator()(
     b.rcv_wnd = header.Window();
 
     return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            TcpInternalInterface *tcp) {
+            SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, &b.state.emplace<TimeWait>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 Closing::TriggerType Closing::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 Closing::TriggerType Closing::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsAck(header) && IsSeqAckInRange(header, b)) {
     if (b.snd_nxt == header.AcknowledgementNumber())
-      return {[](TcpInternalInterface *tcp) {tcp->Accept();},
-              &b.state.emplace<TimeWait>()};
+      return {[](SocketInternalInterface *tcp) {
+                tcp->Accept();
+                tcp->TimeWait();
+              }, &b.state.emplace<TimeWait>()};
   }
 
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 LastAck::TriggerType LastAck::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 LastAck::TriggerType LastAck::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsAck(header) && IsSeqAckInRange(header, b)) {
     if (b.snd_nxt == header.AcknowledgementNumber())
-      return {[](TcpInternalInterface *tcp) {tcp->Accept();},
-              &b.state.emplace<Closed>()};
+      return {[](SocketInternalInterface *tcp) {
+                tcp->Accept();
+                tcp->Close();
+              }, &b.state.emplace<Closed>()};
   }
   
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 TimeWait::TriggerType TimeWait::operator()(
     Event, TcpHeader *, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
 }
 
 TimeWait::TriggerType TimeWait::operator()(
     const TcpHeader &, TcpControlBlock &) {
-  return {[](TcpInternalInterface *tcp) {tcp->Discard();}, this};
+  return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
 } // namespace tcp_stack
