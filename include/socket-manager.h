@@ -20,6 +20,10 @@ public:
     ip_ = ip;
   }
 
+  ~SocketManager() {
+    std::cout << __func__ << std::endl;
+  }
+
   template <class Predicate>
   void InternalSendPacketWithResend(std::shared_ptr<TcpPacket> packet,
                                     Predicate pred) {
@@ -56,7 +60,7 @@ public:
     auto new_socket = std::make_shared<SocketInternal>(std::move(packet), this);
 
     std::lock_guard guard(*this);
-    
+
     if (new_socket->IsClosed())
       return ;
 
@@ -192,18 +196,25 @@ public:
 
   std::vector<std::shared_ptr<TcpPacket>> GetPacketsForSending() {
     // lock TcpManager first
-    std::lock_guard guard(*this);
-    for (auto &internal : sockets_wait_for_sending_) {
-      std::lock_guard guard(*internal);
-      while (internal->IsAnyPacketForSending(guard)) {
-        auto packet = internal->GetPacketForSending(guard);
-        packet->GetHeader().Checksum() = CalculateChecksum(*packet);
-        packets_.push_back(std::move(packet));
-      }
-    }
-    sockets_wait_for_sending_.clear();
     std::vector<std::shared_ptr<TcpPacket>> packets;
-    packets.swap(packets_);
+    {
+      for (auto &internal : sockets_wait_for_sending_) {
+        std::lock_guard guard1(*internal);
+        std::lock_guard guard2(*this);
+        while (internal->IsAnyPacketForSending(guard1)) {
+          auto packet = internal->GetPacketForSending(guard1);
+          packets_.push_back(std::move(packet));
+        }
+      }
+      sockets_wait_for_sending_.clear();
+      packets.swap(packets_);
+    }
+
+    for (auto &packet : packets) {
+      packet->GetHeader().Checksum() = 0;
+      packet->GetHeader().Checksum() = CalculateChecksum(*packet);
+    }
+
     return packets;
   }
 
@@ -211,7 +222,6 @@ private:
   void SendPacket(std::shared_ptr<TcpPacket> packet) {
     std::lock_guard guard(*this);
     std::cout << "New Packet" << std::endl;
-    packet->GetHeader().Checksum() = CalculateChecksum(*packet);
     packets_.push_back(std::move(packet));
   }
 

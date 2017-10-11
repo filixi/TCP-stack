@@ -63,7 +63,7 @@ void SocketInternal::NewConnection() {
   manager_->InternalNewConnection(this, current_packet_.lock());
 }
 
-void SocketInternal::SocketDestoryed() {
+void SocketInternal::SocketDestroyed() {
   manager_->InternalClosing(shared_from_this());
 }
 

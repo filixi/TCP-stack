@@ -1,5 +1,7 @@
 #include "state.h"
 
+#include <iostream>
+
 namespace tcp_stack {
 namespace {
 inline bool IsAck(const TcpHeader &header) {
@@ -25,6 +27,11 @@ inline bool IsSeqInRange(const TcpHeader &header, const TcpControlBlock &b) {
 inline bool IsAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
   return header.AcknowledgementNumber() >= b.snd_una &&
       header.AcknowledgementNumber() <= b.snd_nxt;
+}
+
+inline bool IsAckInRangeLoose(const TcpHeader &header,
+                              const TcpControlBlock &b) {
+  return header.AcknowledgementNumber() <= b.snd_nxt;
 }
 
 inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
@@ -185,13 +192,19 @@ Estab::TriggerType Estab::operator()(
 
 Estab::TriggerType Estab::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
-    b.snd_una = header.AcknowledgementNumber();
+  if (IsAck(header) &&
+      IsAckInRangeLoose(header, b) &&
+      IsSeqInRange(header, b)) {
+    b.snd_una = header.AcknowledgementNumber() > b.snd_una ?
+        header.AcknowledgementNumber() : b.snd_una;
     b.rcv_nxt = header.SequenceNumber() + header.TcpLength();
-    return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
+    return {[seq = b.snd_nxt, ack = b.rcv_nxt, send_ack = header.TcpLength(),
+             peer_ack = header.AcknowledgementNumber(), wnd = b.snd_wnd](
             SocketInternalInterface *tcp) {
           tcp->Accept();
-          tcp->SendAck(seq, ack, wnd);
+          tcp->RecvAck(seq, peer_ack, wnd);
+          if (send_ack)
+            tcp->SendAck(seq, ack, wnd);
         }, this};
   } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
     return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](

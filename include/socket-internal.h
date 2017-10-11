@@ -145,6 +145,10 @@ public:
   
   SocketInternal(const SocketInternal &) = delete;
 
+  ~SocketInternal() {
+    std::cout << __func__ << std::endl;
+  }
+
   SocketInternal &operator=(const SocketInternal &) = delete;
 
   // API for SocketManager
@@ -228,10 +232,10 @@ public:
 
   size_t SocketRecv(char *first, size_t size) {
     std::unique_lock lck(mtx_);
+    
     bytes_demand_.store(size);
-
     wait_until_readable_.wait(lck, [this, size] {
-          return recv_buffer_.size() < size;
+          return recv_buffer_.size() >= size;
         });
       
     const auto source_first = recv_buffer_.begin();
@@ -248,7 +252,7 @@ public:
     state_(Event::kClose, nullptr)(this);
   }
 
-  void SocketDestoryed();
+  void SocketDestroyed();
 
   void lock() {
     mtx_.lock();
@@ -283,6 +287,8 @@ private:
   void SendAck(uint32_t seq, uint32_t ack, uint16_t window) override {
     auto packet = MakeTcpPacket(0);
     AckHeader(seq, ack, window, &packet->GetHeader());
+
+    std::cout << "Ack" << packet->GetHeader().TcpLength() << std::endl;
     SendPacket(std::move(packet));
   }
 
@@ -309,17 +315,22 @@ private:
   }
 
   void Accept() override {
+    std::cout << __func__ << std::endl;
     auto packet = current_packet_.lock();
     if (packet->GetHeader().TcpLength() > 0) {
+      
       recv_buffer_.insert(recv_buffer_.end(), packet->begin(), packet->end());
-
+      std::cout << "With Content " << std::endl;
       if (bytes_demand_.load() != 0 &&
           recv_buffer_.size() >= bytes_demand_.load())
         wait_until_readable_.notify_all();
     }
   }
 
-  void Discard() override {}
+  void Discard() override {
+    std::cout << __func__ << std::endl;
+  }
+
   void SeqOutofRange(uint16_t window) override {
     assert(false);
   }

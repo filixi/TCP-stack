@@ -6,6 +6,8 @@
 #include <memory>
 #include <ostream>
 
+#include <iostream>
+
 namespace tcp_stack {
 template <size_t size>
 class Field {
@@ -231,10 +233,13 @@ public:
 
 protected:
   TcpPacket(size_t size)
-      : size_(size + sizeof(TcpHeader)), buff_(new char[size_]) {}
+      : size_(sizeof(TcpHeader) + size), buff_(new char[size_]) {
+    new(buff_.get()) TcpHeader;
+  }
   
   TcpPacket(const char *buff, size_t size)
-      : size_(size + sizeof(TcpHeader)), buff_(new char[size_]) {
+      : size_(sizeof(TcpHeader) + size), buff_(new char[size_]) {
+    new(buff_.get()) TcpHeader;
     std::copy(buff, buff+size, begin());
   }
 

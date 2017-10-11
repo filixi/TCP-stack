@@ -13,7 +13,8 @@ std::ostream &operator<<(std::ostream &o, const TcpHeader &header) {
   
   o << header.SourcePort() << "->" << header.DestinationPort() << " "
     << "S" << header.SequenceNumber() << " "
-    << "A" << header.AcknowledgementNumber() << " ";
+    << "A" << header.AcknowledgementNumber() << " "
+    << "L" << header.TcpLength();
   return o;
 }
 

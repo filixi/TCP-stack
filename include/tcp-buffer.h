@@ -2,6 +2,7 @@
 #define _TCP_STACK_TCP_BUFFER_H_
 
 #include <cassert>
+#include <cstddef>
 
 #include <deque>
 #include <memory>
@@ -43,16 +44,26 @@ private:
 class TcpSendingBuffer {
 public:
   void InitializeAckNumber(uint32_t ack) {
-    last_ack_ = ack;
+    initial_ack_ = last_ack_ = ack;
   }
 
   void Ack(uint32_t ack) {
     // TODO: add support to circle ack number.
     assert(ack >= last_ack_);
+
+    std::cout << "\tBuffer_ACK" << ack << " " << last_ack_ << " " << last_get_ << std::endl;
+
     if (ack - last_ack_ <= Size()) {
+      last_get_ -= ack - last_ack_;
       buff_.PopFront(ack - last_ack_);
       last_ack_ = ack;
+    } else {
+      last_get_ = 0;
+      buff_.Clear();
+      last_ack_ = ack;
     }
+
+    std::cout << "Buff Size:" << Size() << std::endl;
   }
 
   void Push(const char *source, size_t size) {
@@ -62,19 +73,32 @@ public:
   void Get(char *sink, uint32_t first, uint32_t last) {
     assert(first >= 0);
     assert(first <= last);
-    assert(last < Size());
+    assert(last <= Size());
 
     buff_.Get(sink, first, last);
   }
 
   auto GetAsTcpPacket(uint32_t first, uint32_t last) {
-    auto tcp_packet = MakeTcpPacket(last-first);
-    Get(tcp_packet->begin(), first, last);
+    const uint32_t abs_first = first + last_get_;
+    uint32_t abs_last = last + last_get_;
+
+    assert(abs_first <= Size());
+
+    if (abs_last >= Size())
+      abs_last = Size();
+
+    std::cout << "A packet is retreived " << std::endl;
+    auto tcp_packet = MakeTcpPacket(abs_last - abs_first);
+    Get(tcp_packet->begin(), abs_first, abs_last);
+    tcp_packet->GetHeader().TcpLength() = abs_last - abs_first;
+
+    last_get_ = abs_last;
     return tcp_packet;
   }
 
   bool Empty() const {
-    return buff_.Empty();
+    std::cout << "Emtpy" << " " << Size() << " " << last_get_ << std::endl;
+    return static_cast<ptrdiff_t>(Size()) == last_get_;
   }
 
   size_t Size() const {
@@ -88,8 +112,10 @@ public:
 private:
   Buffer buff_;
   uint32_t last_ack_;
-};
+  uint32_t initial_ack_;
 
+  int64_t last_get_ = 0;
+};
 
 } // namespace tcp_stack
 

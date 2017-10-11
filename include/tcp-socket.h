@@ -39,37 +39,51 @@ public:
   TcpSocket &operator=(const TcpSocket &) = delete;
   TcpSocket &operator=(TcpSocket &&) = default;
 
-  ~TcpSocket() {
+  ~TcpSocket() try {
+    std::cout << __func__ << std::endl;
     if (internal_) {
-      Close();
-      internal_->SocketDestoryed();
+      internal_->SocketClose();
+      internal_->SocketDestroyed();
     }
-  }
+  } catch(...) {}
 
   void Listen(uint16_t port) {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     internal_->SocketListen(port);
   }
   
   TcpSocket Accept() {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     return internal_->SocketAccept();
   }
 
   void Connect(const char *ip, uint16_t port) {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     uint64_t int_ip = 0;
     IpStr2Int(ip, &int_ip);
     internal_->SocketConnect(int_ip, port);
   }
 
   void Send(const char *first, size_t size) {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     internal_->SocketSend(first, size);
   }
 
   size_t Recv(char *first, size_t size) {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     return internal_->SocketRecv(first, size);
   }
 
   void Close() {
+    if (!internal_)
+      throw std::runtime_error("Invalid Socket");
     internal_->SocketClose();
+    internal_.reset();
   }
 
 private:
