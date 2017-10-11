@@ -22,20 +22,19 @@ std::shared_ptr<SocketInternal> SocketInternal::SocketAccept() {
   if (state_.GetState() != State::kListen)
     throw std::runtime_error("Socket is not listening");
   
-  auto lck = SelfUniqueLock();
-  wait_until_readable_.wait(lck, [this]() {
+  auto lock = manager_->SelfUniqueLock();
+  wait_until_readable_.wait(lock, [this]() {
         return manager_->InternalAnyNewConnection(this);
       });
 
-  return manager_->InternalGetNewConnection(this);
+  return manager_->InternalGetNewConnection(this, GetIdentifier());
 }
 
 void SocketInternal::SendPacket(std::shared_ptr<TcpPacket> packet) {
   SetSource(host_ip_, host_port_, &packet->GetHeader());
   SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
 
-  manager_->InternalSendPacket(
-      std::move(packet), LockGuardType(*manager_, *this));
+  manager_->InternalSendPacket(std::move(packet));
 }
 
 void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
@@ -51,17 +50,17 @@ void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
         return shared_self->state_.GetControlBlock().snd_una <
                    packet->GetHeader().SequenceNumber();
       };
-  manager_->InternalSendPacketWithResend(
-      std::move(packet), predicate, LockGuardType(*manager_, *this));
+  manager_->InternalSendPacketWithResend(std::move(packet), predicate);
 }
-    
+
 void SocketInternal::Listen() {
   host_port_ = next_host_port_;
-  manager_->InternalListen(shared_from_this());
+  manager_->InternalListen(shared_from_this(), GetIdentifier());
 }
 
 void SocketInternal::NewConnection() {
-  manager_->InternalHasPacketForSending(shared_from_this());
+  std::cout << "New Connection" << std::endl;
+  manager_->InternalNewConnection(this, current_packet_.lock());
 }
 
 void SocketInternal::SocketDestoryed() {
@@ -69,11 +68,11 @@ void SocketInternal::SocketDestoryed() {
 }
 
 void SocketInternal::Close() {
-  manager_->InternalClosed(shared_from_this());
+  manager_->InternalClosed(shared_from_this(), GetIdentifier());
 }
 
 void SocketInternal::TimeWait() {
-  manager_->InternalTimeWait(shared_from_this());
+  manager_->InternalTimeWait(shared_from_this(), GetIdentifier());
 }
 
 void SocketInternal::SocketSend(const char *first, size_t size) {

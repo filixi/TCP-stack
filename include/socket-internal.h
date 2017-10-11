@@ -68,7 +68,7 @@ struct SocketIdentifier {
         lhs.peer_ip_ == rhs.peer_ip_ && lhs.peer_port_ == rhs.peer_port_;
   }
       
-  SocketIdentifier(uint64_t host_ip, uint16_t host_port, uint64_t peer_ip,
+  SocketIdentifier(uint32_t host_ip, uint16_t host_port, uint32_t peer_ip,
       uint16_t peer_port)
       : host_ip_(host_ip), host_port_(host_port), peer_ip_(peer_ip),
         peer_port_(peer_port) {}
@@ -80,10 +80,10 @@ struct SocketIdentifier {
         peer_port_(header.SourcePort()) {}
 
 private:
-  uint64_t host_ip_;
+  uint32_t host_ip_;
   uint16_t host_port_;
 
-  uint64_t peer_ip_;
+  uint32_t peer_ip_;
   uint16_t peer_port_;
 };
 
@@ -93,7 +93,7 @@ namespace std {
 template <>
 struct hash<tcp_stack::SocketIdentifier> {
   size_t operator()(const tcp_stack::SocketIdentifier &x) const {
-    uint64_t result = x.host_ip_;
+    uint32_t result = x.host_ip_;
     result = result*2654435761 + x.host_port_;
     result = result*2654435761 + x.peer_ip_;
     return result*2654435761 + x.peer_port_;
@@ -132,14 +132,15 @@ class SocketManager;
 class SocketInternal : private SocketInternalInterface,
                        public std::enable_shared_from_this<SocketInternal> {
 public:
-  using LockGuardType = std::scoped_lock<SocketManager, SocketInternal>;
-
   SocketInternal(std::shared_ptr<TcpPacket> packet, SocketManager *manager)
       : host_ip_(packet->GetHeader().DestinationAddress()),
         host_port_(packet->GetHeader().DestinationPort()),
-        manager_(manager) {}
+        manager_(manager) {
+    std::cout << "SocketInternal from packet" << std::endl;
+    RecvPacket(std::move(packet));
+  }
 
-  SocketInternal(uint64_t host_ip, uint16_t host_port, SocketManager *manager)
+  SocketInternal(uint32_t host_ip, uint16_t host_port, SocketManager *manager)
       : host_ip_(host_ip), host_port_(host_port), manager_(manager) {}
   
   SocketInternal(const SocketInternal &) = delete;
@@ -147,27 +148,25 @@ public:
   SocketInternal &operator=(const SocketInternal &) = delete;
 
   // API for SocketManager
-  void RecvPacket(std::shared_ptr<TcpPacket> packet,
-                  const std::lock_guard<SocketInternal> &) {
+  void RecvPacket(std::shared_ptr<TcpPacket> packet) {
     if (CalculateChecksum(*packet) != 0) {
+      std::cout << "Invalide Checksum" << std::endl;
       state_.InvalideCheckSum()(this);
     } else {
+      std::lock_guard guard(*this);
+      std::cout << "RecvPacket" << std::endl;
       current_packet_ = packet;
       state_(packet->GetHeader())(this);
     }
   }
 
-  bool IsClosed(const std::lock_guard<SocketInternal> &) {
+  bool IsClosed() {
+    std::lock_guard guard(*this);
     return state_.GetState() == State::kClosed;
   }
 
   void SignalANewConnection() {
     wait_until_readable_.notify_all();
-  }
-
-  SocketIdentifier GetIdentifier(const std::lock_guard<SocketInternal> &)
-      const {
-    return SocketIdentifier(host_ip_, host_port_, peer_ip_, peer_port_);
   }
 
   bool IsAnyPacketForSending(const std::lock_guard<SocketInternal> &) {
@@ -212,7 +211,7 @@ public:
     state_(Event::kListen, nullptr)(this);
   }
 
-  void SocketConnect(uint64_t ip, uint16_t port) {
+  void SocketConnect(uint32_t ip, uint16_t port) {
     next_peer_ip_ = ip;
     next_peer_port_ = port;
 
@@ -246,8 +245,7 @@ public:
 
   void SocketClose() {
     std::lock_guard lck(*this);
-    auto react = state_(Event::kClose, nullptr);
-    react(this);
+    state_(Event::kClose, nullptr)(this);
   }
 
   void SocketDestoryed();
@@ -278,7 +276,7 @@ private:
     auto packet = MakeTcpPacket(0);
     SynAckHeader(seq, ack, window, &packet->GetHeader());
     send_buffer_.InitializeAckNumber(seq + 1);
-    
+
     SendPacketWithResend(std::move(packet));
   }
 
@@ -341,15 +339,19 @@ private:
   void Close() override;
   void TimeWait() override;
 
-  uint64_t host_ip_ = 0;
+  SocketIdentifier GetIdentifier() const {
+    return SocketIdentifier(host_ip_, host_port_, peer_ip_, peer_port_);
+  }
+
+  uint32_t host_ip_ = 0;
   uint16_t host_port_ = 0;
 
-  uint64_t peer_ip_ = 0;
+  uint32_t peer_ip_ = 0;
   uint16_t peer_port_ = 0;
 
   uint16_t next_host_port_ = 0;
 
-  uint64_t next_peer_ip_ = 0;
+  uint32_t next_peer_ip_ = 0;
   uint16_t next_peer_port_ = 0;
 
   std::weak_ptr<TcpPacket> current_packet_;

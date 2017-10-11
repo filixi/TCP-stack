@@ -1,7 +1,10 @@
 #ifndef _TCP_STATE_MACHINE_TCP_HEADER_H_
 #define _TCP_STATE_MACHINE_TCP_HEADER_H_
 
+#include <cassert>
+
 #include <memory>
+#include <ostream>
 
 namespace tcp_stack {
 template <size_t size>
@@ -242,6 +245,8 @@ private:
   size_t size_;
   std::unique_ptr<char []> buff_;
 };
+
+std::ostream &operator<<(std::ostream &o, const TcpHeader &header);
 
 inline std::shared_ptr<TcpPacket> MakeTcpPacket(size_t size) {
   struct EnableMake : TcpPacket {

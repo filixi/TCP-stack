@@ -15,20 +15,18 @@
 namespace tcp_stack {
 class SocketManager {
 public:
-  using LockGuardType = SocketInternal::LockGuardType;
-
-  SocketManager() {
+  SocketManager(uint32_t ip) {
     timeout_queue_.AsyncRun();
+    ip_ = ip;
   }
 
   template <class Predicate>
   void InternalSendPacketWithResend(std::shared_ptr<TcpPacket> packet,
-                                    Predicate pred,
-                                    const LockGuardType &) {
+                                    Predicate pred) {
     constexpr auto resent_timeout = std::chrono::seconds(5);
     SendPacket(packet);
     timeout_queue_.PushEvent(
-        [packet = std::move(packet), pred = std::move(pred), this]() -> bool {
+        [packet = std::move(packet), pred = std::move(pred), this]() {
           const bool is_valid = pred(packet);
           if (is_valid)
             SendPacket(packet);
@@ -36,17 +34,16 @@ public:
         }, resent_timeout);
   }
 
-  void InternalSendPacket(std::shared_ptr<TcpPacket> packet,
-                          const LockGuardType &) {
+  void InternalSendPacket(std::shared_ptr<TcpPacket> packet) {
     SendPacket(packet);
   }
 
-  void InternalListen(std::shared_ptr<SocketInternal> internal) {
+  void InternalListen(std::shared_ptr<SocketInternal> internal,
+                      const SocketIdentifier &id) {
     std::lock_guard guard(*this);
     assert(unused_sockets_.find(internal) != unused_sockets_.end());
     
     unused_sockets_.erase(internal);
-    const auto id = internal->GetIdentifier(std::lock_guard(*internal));
 
     if (identifier_to_socket_.find(id) != identifier_to_socket_.end())
       throw std::runtime_error("port used.");
@@ -55,12 +52,12 @@ public:
 
   void InternalNewConnection(SocketInternal *internal,
                              std::shared_ptr<TcpPacket> packet) {
-    std::lock_guard guard(*this);
-    
     SocketIdentifier id(packet->GetHeader());
     auto new_socket = std::make_shared<SocketInternal>(std::move(packet), this);
 
-    if (new_socket->IsClosed(std::lock_guard(*new_socket)))
+    std::lock_guard guard(*this);
+    
+    if (new_socket->IsClosed())
       return ;
 
     auto new_connection_list = new_connections_.find(internal);
@@ -71,11 +68,13 @@ public:
 
     assert(identifier_to_socket_.find(id) == identifier_to_socket_.end());
     identifier_to_socket_.emplace(id, new_socket);
+
+    internal->SignalANewConnection();
   }
 
   void InternalConnectTo(
       std::shared_ptr<SocketInternal> internal,
-      uint16_t host_port, uint64_t peer_ip, uint16_t peer_port) {
+      uint16_t host_port, uint32_t peer_ip, uint16_t peer_port) {
     SocketIdentifier id(ip_, host_port, peer_ip, peer_port);
 
     std::lock_guard guard(*this);
@@ -83,8 +82,11 @@ public:
     identifier_to_socket_[id] = internal;
   }
 
+  auto SelfUniqueLock() {
+    return std::unique_lock(mtx_);
+  }
+
   bool InternalAnyNewConnection(SocketInternal *internal) {
-    std::lock_guard guard(*this);
     auto ite = new_connections_.find(internal);
     if (ite == new_connections_.end() || ite->second.empty())
       return false;
@@ -92,8 +94,7 @@ public:
   }
 
   std::shared_ptr<SocketInternal> InternalGetNewConnection(
-      SocketInternal *internal) {
-    std::lock_guard guard(*this);
+      SocketInternal *internal, const SocketIdentifier &id) {
     auto ite = new_connections_.find(internal);
     if (ite == new_connections_.end() || ite->second.empty())
       return {};
@@ -101,13 +102,13 @@ public:
     auto connection = ite->second.front();
     ite->second.pop_front();
 
-    identifier_to_socket_[
-        connection->GetIdentifier(std::lock_guard(*connection))] = connection;
+    identifier_to_socket_[id] = connection;
 
     return connection;
   }
 
   void InternalHasPacketForSending(std::shared_ptr<SocketInternal> internal) {
+    std::lock_guard guard(*this);
     sockets_wait_for_sending_.insert(std::move(internal));
   }
 
@@ -124,18 +125,19 @@ public:
     }
   }
 
-  void InternalTimeWait(const std::shared_ptr<SocketInternal> &internal) {
-    timeout_queue_.PushEvent([internal, this]() {
+  void InternalTimeWait(const std::shared_ptr<SocketInternal> &internal,
+                        const SocketIdentifier &id) {
+    timeout_queue_.PushEvent([internal, id, this]() {
           internal->Reset();
-          InternalClosed(internal);
+          InternalClosed(internal, id);
           return false;
         }, std::chrono::seconds(5));
   }
 
-  void InternalClosed(const std::shared_ptr<SocketInternal> &internal) {
+  void InternalClosed(const std::shared_ptr<SocketInternal> &internal,
+                      const SocketIdentifier &id) {
     std::lock_guard guard(*this);
-    identifier_to_socket_.erase(
-          internal->GetIdentifier(std::lock_guard(*internal)));
+    identifier_to_socket_.erase(id);
     new_connections_.erase(internal.get());
   }
 
@@ -147,14 +149,19 @@ public:
     const auto peer_port = packet->GetHeader().SourcePort();
 
     auto [internal, found] =
-        FindInternal(host_ip, host_port, peer_ip, peer_port);
-    if (found) {
-      std::lock_guard internal_guard(*internal);
-      internal->RecvPacket(std::move(packet), internal_guard);
+        packet->GetHeader().Syn() && !packet->GetHeader().Ack() ?
+          FindInternal(host_ip, host_port, 0, 0) :
+          FindInternal(host_ip, host_port, peer_ip, peer_port);
 
+    if (found) {
+      std::cout << "Internal found" << std::endl;
+      internal->RecvPacket(std::move(packet));
+      
+      std::lock_guard internal_guard(*internal);
       while (internal->IsAnyPacketForSending(internal_guard))
         SendPacket(internal->GetPacketForSending(internal_guard));
     } else {
+      std::cout << "Sending Rst" << std::endl;
       auto rst_packet = MakeTcpPacket(0);
       RstHeader(packet->GetHeader(), &rst_packet->GetHeader());
       SendPacket(rst_packet);
@@ -183,12 +190,6 @@ public:
     mtx_.unlock();
   }
 
-private:
-  void SendPacket(std::shared_ptr<TcpPacket> packet) {
-    packet->GetHeader().Checksum() = CalculateChecksum(*packet);
-    packets_.push_back(std::move(packet));
-  }
-
   std::vector<std::shared_ptr<TcpPacket>> GetPacketsForSending() {
     // lock TcpManager first
     std::lock_guard guard(*this);
@@ -206,8 +207,16 @@ private:
     return packets;
   }
 
+private:
+  void SendPacket(std::shared_ptr<TcpPacket> packet) {
+    std::lock_guard guard(*this);
+    std::cout << "New Packet" << std::endl;
+    packet->GetHeader().Checksum() = CalculateChecksum(*packet);
+    packets_.push_back(std::move(packet));
+  }
+
   std::pair<std::shared_ptr<SocketInternal>, bool> FindInternal(
-      uint64_t host_ip, uint16_t host_port, uint64_t peer_ip,
+      uint32_t host_ip, uint16_t host_port, uint32_t peer_ip,
       uint16_t peer_port) {
     std::lock_guard guard(*this);
     const auto socket = identifier_to_socket_.find(SocketIdentifier{
@@ -218,7 +227,7 @@ private:
     return {socket->second, true};
   }
 
-  uint64_t ip_ = 0;
+  uint32_t ip_ = 0;
 
   std::unordered_set<std::shared_ptr<SocketInternal>> unused_sockets_;
 

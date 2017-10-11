@@ -79,9 +79,14 @@ Closed::TriggerType Closed::operator()(
 }
 
 Listen::TriggerType Listen::operator()(
-    Event, TcpHeader *, TcpControlBlock &) {
+    Event event, TcpHeader *, TcpControlBlock &b) {
   // Initiate connection from Listen is forbiden.
-  return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  if (event == Event::kClose) {
+    return {[](SocketInternalInterface *tcp) {tcp->Close();},
+            &b.state.emplace<Closed>()};
+  } else {
+    return {[](SocketInternalInterface *tcp) {tcp->InvalidOperation();}, this};
+  }
 }
 
 Listen::TriggerType Listen::operator()(
