@@ -4,6 +4,8 @@
 #include <chrono>
 #include <list>
 #include <mutex>
+#include <numeric>
+#include <random>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -142,7 +144,26 @@ public:
                       const SocketIdentifier &id) {
     std::lock_guard guard(*this);
     identifier_to_socket_.erase(id);
+    used_port_.erase(id);
     new_connections_.erase(internal.get());
+  }
+
+  uint16_t GetPortNumber(uint32_t peer_ip, uint16_t peer_port) {
+    std::lock_guard guard(*this);
+    static std::mt19937 e(std::random_device{}());
+    static std::uniform_int_distribution<uint16_t> d(
+        1, std::numeric_limits<uint16_t>::max());
+    
+    
+    SocketIdentifier id(ip_, 0, peer_ip, peer_port);
+    for (int i=0; i<65536; ++i) {
+      const auto port = d(e);
+      id.SetHostPort(port);
+      if (used_port_.find(id) == used_port_.end())
+        return port;
+    }
+      
+    throw std::runtime_error("Failed in allocating port number");
   }
 
   void ReceivePacket(std::shared_ptr<TcpPacket> packet) {
@@ -238,6 +259,8 @@ private:
   }
 
   uint32_t ip_ = 0;
+
+  std::unordered_set<SocketIdentifier> used_port_;
 
   std::unordered_set<std::shared_ptr<SocketInternal>> unused_sockets_;
 

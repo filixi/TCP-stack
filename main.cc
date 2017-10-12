@@ -6,10 +6,6 @@
 
 using namespace tcp_stack;
 
-// TODO: bug in closing stage
-// TODO: port number allocation (std::set<Ip&Port>)
-// TODO: nothrow close
-
 int main() {
   SocketManager server(1), client(2);
 
@@ -35,7 +31,7 @@ int main() {
       });
   std::this_thread::sleep_for(std::chrono::seconds(1));
 
-  for (int i=0; i<20; ++i) {  
+  for (int i=0; i<40; ++i) {  
     auto packets = client.GetPacketsForSending();
     std::cout << packets.size() << std::endl;
     for (auto &packet : packets) {

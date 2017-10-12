@@ -78,6 +78,10 @@ struct SocketIdentifier {
         host_port_(header.DestinationPort()),
         peer_ip_(header.SourceAddress()),
         peer_port_(header.SourcePort()) {}
+  
+  void SetHostPort(uint16_t port) {
+    host_port_ = port;
+  }
 
 private:
   uint32_t host_ip_;
@@ -135,6 +139,8 @@ public:
   SocketInternal(std::shared_ptr<TcpPacket> packet, SocketManager *manager)
       : host_ip_(packet->GetHeader().DestinationAddress()),
         host_port_(packet->GetHeader().DestinationPort()),
+        peer_ip_(packet->GetHeader().SourceAddress()),
+        peer_port_(packet->GetHeader().SourcePort()),
         manager_(manager) {
     std::cout << "SocketInternal from packet" << std::endl;
     RecvPacket(std::move(packet));

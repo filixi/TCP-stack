@@ -12,6 +12,8 @@ void SocketInternal::SendSyn(uint32_t seq, uint16_t window) {
   peer_ip_ = next_peer_ip_;
   peer_port_ = next_peer_port_;
 
+  host_port_ = manager_->GetPortNumber(peer_ip_, peer_port_);
+
   manager_->InternalConnectTo(
       shared_from_this(), host_port_, peer_ip_, peer_port_);
 

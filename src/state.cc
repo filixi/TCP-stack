@@ -35,7 +35,7 @@ inline bool IsAckInRangeLoose(const TcpHeader &header,
 }
 
 inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
-  return IsAckInRange(header, b) && IsSeqInRange(header, b);
+  return IsAckInRangeLoose(header, b) && IsSeqInRange(header, b);
 }
 
 } // anonymous namespace
@@ -303,6 +303,10 @@ Closing::TriggerType Closing::operator()(
                 tcp->Accept();
                 tcp->TimeWait();
               }, &b.state.emplace<TimeWait>()};
+    else
+      return {[](SocketInternalInterface *tcp) {
+                tcp->Accept();
+              }, this};
   }
 
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
@@ -321,6 +325,10 @@ LastAck::TriggerType LastAck::operator()(
                 tcp->Accept();
                 tcp->Close();
               }, &b.state.emplace<Closed>()};
+    else
+      return {[](SocketInternalInterface *tcp) {
+                tcp->Accept();
+              }, this};
   }
   
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};

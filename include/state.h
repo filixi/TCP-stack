@@ -255,7 +255,7 @@ public:
   }
 
   TcpState::ReactType operator()(const TcpHeader &header) {
-    std::cout << "Packet In: " << ToString(GetState()) << std::endl;
+    std::cout << this << " Packet In: " << ToString(GetState()) << std::endl;
 
     auto [react, new_state] = state_->operator()(header, block_);
     state_ = new_state;
