@@ -72,7 +72,7 @@ public:
       throw std::runtime_error("Invalid Socket");
     internal_->SocketSend(first, size);
   }
-
+  
   size_t Recv(char *first, size_t size) {
     if (!internal_)
       throw std::runtime_error("Invalid Socket");

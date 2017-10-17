@@ -6,6 +6,13 @@
 
 using namespace tcp_stack;
 
+// TODO: test checksum failure
+// TODO: test resend
+// TODO: test resend canceling
+
+// TODO: log system
+// TODO: network system
+
 int main() {
   SocketManager server(1), client(2);
 
@@ -16,7 +23,8 @@ int main() {
         server_socket.Listen(10);
         client_socket.Connect("0.0.0.1", 10);
 
-        client_socket.Send("Abcdefghijklmnopqrstuvwxyz", 26);
+        client_socket.Send("Abcdefghijklmno", 15);
+        client_socket.Send("pqrstuvwxyz", 11);
 
         char buff[27] = {0};
         auto server_connection = server_socket.Accept();

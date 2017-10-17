@@ -1,6 +1,7 @@
 #include "state.h"
 
 #include <iostream>
+#include <random>
 
 namespace tcp_stack {
 namespace {
@@ -38,6 +39,13 @@ inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
   return IsAckInRangeLoose(header, b) && IsSeqInRange(header, b);
 }
 
+inline uint32_t RandomSynNumber() {
+  thread_local static std::mt19937 e(std::random_device{}());
+  thread_local static std::uniform_int_distribution<uint32_t> d(10, 10000);
+
+  return d(e);
+}
+
 } // anonymous namespace
 
 Closed::TriggerType Closed::operator()(
@@ -47,7 +55,7 @@ Closed::TriggerType Closed::operator()(
           tcp->Listen();
         }, &b.state.emplace<Listen>()};
   } else if (event == Event::kConnect) {
-    b.snd_seq = 10;
+    b.snd_seq = RandomSynNumber();
     b.snd_una = b.snd_seq + 1;
     b.snd_nxt = b.snd_seq + 1;
     b.snd_wnd = 1024;
@@ -64,7 +72,7 @@ Closed::TriggerType Closed::operator()(
 Closed::TriggerType Closed::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsSyn(header)) {
-    b.snd_seq = 10;
+    b.snd_seq = RandomSynNumber();
     b.snd_una = b.snd_seq + 1;
     b.snd_nxt = b.snd_seq + 1;
     b.snd_wnd = 1024;
@@ -168,7 +176,7 @@ Estab::TriggerType Estab::operator()(
   if (event == Event::kSend) {
     assert(header);
 
-    if (b.snd_nxt + header->TcpLength() >= b.snd_wnd)
+    if (b.snd_nxt + header->TcpLength() >= b.snd_una + b.snd_wnd)
       return {[wnd = b.snd_wnd](SocketInternalInterface *tcp) {
             tcp->SeqOutofRange(wnd);
           }, this};
