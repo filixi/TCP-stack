@@ -245,22 +245,22 @@ public:
   TcpStateManager &operator=(const TcpStateManager &) = delete;
 
   TcpState::ReactType operator()(Event event, TcpHeader *header) {
-    std::cout << "Action In: " << ToString(GetState()) << std::endl;
+    std::cout << block_.snd_nxt << '|' << block_.rcv_nxt << "Action In: " << ToString(GetState()) << std::endl;
 
     auto [react, new_state] = state_->operator()(event, header, block_);
     state_ = new_state;
 
-    std::cout << "Action out: " << ToString(GetState()) << std::endl;
+    std::cout << "Action out: " << ToString(GetState()) << std::endl << std::endl;
     return react;
   }
 
   TcpState::ReactType operator()(const TcpHeader &header) {
-    std::cout << this << " Packet In: " << ToString(GetState()) << std::endl;
+    std::cout << block_.snd_nxt << '|' << block_.rcv_nxt << " Packet In: " << ToString(GetState()) << std::endl;
 
     auto [react, new_state] = state_->operator()(header, block_);
     state_ = new_state;
 
-    std::cout << "Packet Out: " << ToString(GetState()) << std::endl;
+    std::cout << "Packet Out: " << ToString(GetState()) << std::endl << std::endl;
     return react;
   }
 

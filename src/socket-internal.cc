@@ -49,8 +49,15 @@ void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
           return false;
         
         std::lock_guard guard(*shared_self);
-        return shared_self->state_.GetControlBlock().snd_una <
+        if (shared_self->state_.GetState() == State::kClosed) {
+          return false;
+        } else if (packet->GetHeader().Syn() || packet->GetHeader().Fin()) {
+          return shared_self->state_.GetControlBlock().snd_una <
+                   packet->GetHeader().SequenceNumber() + 1;
+        } else {
+          return shared_self->state_.GetControlBlock().snd_una <
                    packet->GetHeader().SequenceNumber();
+        }
       };
   manager_->InternalSendPacketWithResend(std::move(packet), predicate);
 }

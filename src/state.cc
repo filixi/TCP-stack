@@ -21,29 +21,14 @@ inline bool IsFin(const TcpHeader &header) {
   return header.Fin() && header.Ack() && !header.Syn();
 }
 
-inline bool IsSeqInRange(const TcpHeader &header, const TcpControlBlock &b) {
-  return header.SequenceNumber() == b.rcv_nxt;
-}
-
-inline bool IsAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
-  return header.AcknowledgementNumber() >= b.snd_una &&
-      header.AcknowledgementNumber() <= b.snd_nxt;
-}
-
-inline bool IsAckInRangeLoose(const TcpHeader &header,
-                              const TcpControlBlock &b) {
-  return header.AcknowledgementNumber() <= b.snd_nxt;
-}
-
-inline bool IsSeqAckInRange(const TcpHeader &header, const TcpControlBlock &b) {
-  return IsAckInRangeLoose(header, b) && IsSeqInRange(header, b);
-}
-
 inline uint32_t RandomSynNumber() {
   thread_local static std::mt19937 e(std::random_device{}());
   thread_local static std::uniform_int_distribution<uint32_t> d(10, 10000);
 
-  return d(e);
+  auto seq = d(e);
+  std::cout << seq << std::endl;
+
+  return seq;
 }
 
 } // anonymous namespace
@@ -56,7 +41,7 @@ Closed::TriggerType Closed::operator()(
         }, &b.state.emplace<Listen>()};
   } else if (event == Event::kConnect) {
     b.snd_seq = RandomSynNumber();
-    b.snd_una = b.snd_seq + 1;
+    b.snd_una = b.snd_seq;
     b.snd_nxt = b.snd_seq + 1;
     b.snd_wnd = 1024;
     return {[seq = b.snd_seq, wnd = b.snd_wnd](SocketInternalInterface *tcp) {
@@ -73,7 +58,7 @@ Closed::TriggerType Closed::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsSyn(header)) {
     b.snd_seq = RandomSynNumber();
-    b.snd_una = b.snd_seq + 1;
+    b.snd_una = b.snd_seq;
     b.snd_nxt = b.snd_seq + 1;
     b.snd_wnd = 1024;
 
@@ -113,6 +98,7 @@ Listen::TriggerType Listen::operator()(
         }, this};
   }
 
+  // Send Rst ?
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
 
@@ -130,13 +116,17 @@ SynRcvd::TriggerType SynRcvd::operator()(
 
 SynRcvd::TriggerType SynRcvd::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
-    b.snd_una = header.AcknowledgementNumber() + 1;
-    return {[](SocketInternalInterface *tcp) {
-              tcp->Accept();
-              tcp->Connected();
-            },
-            &b.state.emplace<Estab>()};
+  if (IsAck(header)) {
+    if (header.AcknowledgementNumber() == b.snd_nxt) {
+      b.snd_una = header.AcknowledgementNumber();
+      b.rcv_wnd = header.Window();
+      return {[](SocketInternalInterface *tcp) {
+                tcp->Accept();
+                tcp->Connected();
+              }, &b.state.emplace<Estab>()};
+    } else {
+      // Send Syn ?
+    }
   }
 
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
@@ -152,20 +142,26 @@ SynSent::TriggerType SynSent::operator()(
   if (IsSyn(header)) {
     b.rcv_nxt = header.SequenceNumber() + 1;
     b.rcv_wnd = header.Window();
-    return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
+    return {[seq = b.snd_nxt - 1, ack = b.rcv_nxt, wnd = b.snd_wnd](
             SocketInternalInterface *tcp) {
           tcp->Accept();
           tcp->SendAck(seq, ack, wnd);
         }, &b.state.emplace<SynRcvd>()};
-  } else if (IsSynAck(header) && IsAckInRange(header, b)) {
-    b.rcv_nxt = header.SequenceNumber() + 1;
-    b.rcv_wnd = header.Window();
-    return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
-            SocketInternalInterface *tcp) {
-          tcp->Accept();
-          tcp->SendAck(seq, ack, wnd);
-          tcp->Connected();
-        }, &b.state.emplace<Estab>()};
+  } else if (IsSynAck(header)) {
+    if (header.AcknowledgementNumber() == b.snd_nxt) {
+      b.snd_una = header.AcknowledgementNumber();
+
+      b.rcv_nxt = header.SequenceNumber() + 1;
+      b.rcv_wnd = header.Window();
+      return {[seq = b.snd_nxt, ack = b.rcv_nxt, wnd = b.snd_wnd](
+              SocketInternalInterface *tcp) {
+            tcp->Accept();
+            tcp->SendAck(seq, ack, wnd);
+            tcp->Connected();
+          }, &b.state.emplace<Estab>()};
+    } else {
+      // Send Syn ?
+    }
   }
 
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
@@ -176,6 +172,7 @@ Estab::TriggerType Estab::operator()(
   if (event == Event::kSend) {
     assert(header);
 
+    // need check
     if (b.snd_nxt + header->TcpLength() >= b.snd_una + b.snd_wnd)
       return {[wnd = b.snd_wnd](SocketInternalInterface *tcp) {
             tcp->SeqOutofRange(wnd);
@@ -201,11 +198,11 @@ Estab::TriggerType Estab::operator()(
 Estab::TriggerType Estab::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
   if (IsAck(header) &&
-      IsAckInRangeLoose(header, b) &&
-      IsSeqInRange(header, b)) {
-    b.snd_una = header.AcknowledgementNumber() > b.snd_una ?
-        header.AcknowledgementNumber() : b.snd_una;
+      header.AcknowledgementNumber() <= b.snd_nxt &&
+      header.SequenceNumber() == b.rcv_nxt) {
+    b.snd_una = std::max(header.AcknowledgementNumber(), b.snd_una);
     b.rcv_nxt = header.SequenceNumber() + header.TcpLength();
+    b.rcv_wnd = header.Window();
     return {[seq = b.snd_nxt, ack = b.rcv_nxt, send_ack = header.TcpLength(),
              peer_ack = header.AcknowledgementNumber(), wnd = b.snd_wnd](
             SocketInternalInterface *tcp) {
@@ -214,7 +211,10 @@ Estab::TriggerType Estab::operator()(
           if (send_ack)
             tcp->SendAck(seq, ack, wnd);
         }, this};
-  } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
+  } else if (IsFin(header) &&
+             header.AcknowledgementNumber() <= b.snd_nxt &&
+             header.SequenceNumber() == b.rcv_nxt) { // need check
+    b.rcv_wnd = header.Window();
     return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
             SocketInternalInterface *tcp) {
           tcp->Accept();
@@ -232,15 +232,18 @@ FinWait1::TriggerType FinWait1::operator()(
 
 FinWait1::TriggerType FinWait1::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsAckInRange(header, b) && 
-      (header.SequenceNumber() == b.rcv_nxt ||
-       header.SequenceNumber() == b.rcv_nxt+1)) {
+  if (IsAck(header) &&
+      header.AcknowledgementNumber() <= b.snd_nxt &&
+      header.SequenceNumber() == b.rcv_nxt) {
     if (header.AcknowledgementNumber() == b.snd_nxt) // ack fin
       return {[](SocketInternalInterface *tcp) { tcp->Accept(); },
               &b.state.emplace<FinWait2>()};
     else
       return {[](SocketInternalInterface *tcp) { tcp->Accept(); }, this};
-  } else if (IsFin(header) && IsSeqAckInRange(header, b)) {
+  } else if (IsFin(header) && 
+             header.AcknowledgementNumber() <= b.snd_nxt &&
+             header.SequenceNumber() == b.rcv_nxt) {
+    b.rcv_wnd = header.Window();
     return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
             SocketInternalInterface *tcp) {
           tcp->Accept();
@@ -265,13 +268,13 @@ CloseWait::TriggerType CloseWait::operator()(
 
 CloseWait::TriggerType CloseWait::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
-    b.snd_una = header.AcknowledgementNumber();
-    b.rcv_nxt = header.SequenceNumber();
-    b.rcv_wnd = header.Window();
+  // if (IsAck(header) && IsSeqAckInRange(header, b)) {
+  //   b.snd_una = header.AcknowledgementNumber();
+  //   b.rcv_nxt = header.SequenceNumber();
+  //   b.rcv_wnd = header.Window();
 
-    return {[](SocketInternalInterface *tcp) {tcp->Accept();}, this};
-  }
+  //   return {[](SocketInternalInterface *tcp) {tcp->Accept();}, this};
+  // }
 
   return {[](SocketInternalInterface *tcp) {tcp->Discard();}, this};
 }
@@ -283,7 +286,9 @@ FinWait2::TriggerType FinWait2::operator()(
 
 FinWait2::TriggerType FinWait2::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsFin(header) && IsSeqAckInRange(header, b)) {
+  if (IsFin(header) && 
+      header.AcknowledgementNumber() == b.snd_nxt &&
+      header.SequenceNumber() == b.rcv_nxt) {
     b.rcv_nxt = header.SequenceNumber() + 1;
     b.rcv_wnd = header.Window();
 
@@ -305,7 +310,10 @@ Closing::TriggerType Closing::operator()(
 
 Closing::TriggerType Closing::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
+  if (IsAck(header) &&
+      header.AcknowledgementNumber() >= b.snd_una &&
+      header.SequenceNumber() == b.rcv_nxt) {
+    b.snd_una = header.AcknowledgementNumber();
     if (b.snd_nxt == header.AcknowledgementNumber())
       return {[](SocketInternalInterface *tcp) {
                 tcp->Accept();
@@ -327,7 +335,10 @@ LastAck::TriggerType LastAck::operator()(
 
 LastAck::TriggerType LastAck::operator()(
     const TcpHeader &header, TcpControlBlock &b) {
-  if (IsAck(header) && IsSeqAckInRange(header, b)) {
+  if (IsAck(header) &&
+      header.AcknowledgementNumber() >= b.snd_una &&
+      header.SequenceNumber() == b.rcv_nxt) {
+    b.snd_una = header.AcknowledgementNumber();
     if (b.snd_nxt == header.AcknowledgementNumber())
       return {[](SocketInternalInterface *tcp) {
                 tcp->Accept();

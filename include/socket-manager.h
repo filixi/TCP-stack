@@ -29,11 +29,13 @@ public:
   template <class Predicate>
   void InternalSendPacketWithResend(std::shared_ptr<TcpPacket> packet,
                                     Predicate pred) {
+    std::cout << __func__ << std::endl;
     constexpr auto resent_timeout = std::chrono::seconds(5);
     SendPacket(packet);
     timeout_queue_.PushEvent(
         [packet = std::move(packet), pred = std::move(pred), this]() {
           const bool is_valid = pred(packet);
+          std::cout << "Time out" << is_valid << std::endl;
           if (is_valid)
             SendPacket(packet);
           return is_valid;
@@ -41,6 +43,7 @@ public:
   }
 
   void InternalSendPacket(std::shared_ptr<TcpPacket> packet) {
+    std::cout << __func__ << std::endl;
     SendPacket(packet);
   }
 

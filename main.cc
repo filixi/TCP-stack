@@ -10,8 +10,12 @@ using namespace tcp_stack;
 // TODO: test resend
 // TODO: test resend canceling
 
+// TODO: reply of unexpected packets
 // TODO: log system
 // TODO: network system
+
+// TODO: overlap already received segement
+// TODO: circular seq/ack number
 
 int main() {
   SocketManager server(1), client(2);
