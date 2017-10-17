@@ -7,6 +7,7 @@
 #include <deque>
 #include <memory>
 
+#include "safe-log.h"
 #include "tcp-header.h"
 
 namespace tcp_stack {
@@ -51,7 +52,7 @@ public:
     // TODO: add support to circle ack number.
     assert(ack >= last_ack_);
 
-    std::cout << "\tBuffer_ACK" << ack << " " << last_ack_ << " " << last_get_ << std::endl;
+    Log("Buffer_ACK", ack, " ", last_ack_, " ", last_get_);
 
     if (ack - last_ack_ <= Size()) {
       last_get_ -= ack - last_ack_;
@@ -63,7 +64,7 @@ public:
       last_ack_ = ack;
     }
 
-    std::cout << "Buff Size:" << Size() << std::endl;
+    Log("Buff Size:", Size());
   }
 
   void Push(const char *source, size_t size) {
@@ -87,7 +88,7 @@ public:
     if (abs_last >= Size())
       abs_last = Size();
 
-    std::cout << "A packet is retreived " << std::endl;
+    Log("A packet is retreived ");
     auto tcp_packet = MakeTcpPacket(abs_last - abs_first);
     Get(tcp_packet->begin(), abs_first, abs_last);
     tcp_packet->GetHeader().TcpLength() = abs_last - abs_first;
@@ -97,7 +98,7 @@ public:
   }
 
   bool Empty() const {
-    std::cout << "Emtpy" << " " << Size() << " " << last_get_ << std::endl;
+    Log("Emtpy", " ", Size(), " ", last_get_);
     return static_cast<ptrdiff_t>(Size()) == last_get_;
   }
 

@@ -5,6 +5,7 @@
 
 #include <memory>
 
+#include "safe-log.h"
 #include "socket-internal.h"
 
 namespace tcp_stack {
@@ -40,7 +41,7 @@ public:
   TcpSocket &operator=(TcpSocket &&) = default;
 
   ~TcpSocket() try {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
     if (internal_) {
       internal_->SocketClose();
       internal_->SocketDestroyed();

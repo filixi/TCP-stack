@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "safe-log.h"
 #include "socket-internal.h"
 #include "tcp-socket.h"
 #include "timeout-queue.h"
@@ -23,19 +24,19 @@ public:
   }
 
   ~SocketManager() {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
   }
 
   template <class Predicate>
   void InternalSendPacketWithResend(std::shared_ptr<TcpPacket> packet,
                                     Predicate pred) {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
     constexpr auto resent_timeout = std::chrono::seconds(5);
     SendPacket(packet);
     timeout_queue_.PushEvent(
         [packet = std::move(packet), pred = std::move(pred), this]() {
           const bool is_valid = pred(packet);
-          std::cout << "Time out" << is_valid << std::endl;
+          Log("Time out", is_valid);
           if (is_valid)
             SendPacket(packet);
           return is_valid;
@@ -43,7 +44,7 @@ public:
   }
 
   void InternalSendPacket(std::shared_ptr<TcpPacket> packet) {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
     SendPacket(packet);
   }
 
@@ -139,6 +140,7 @@ public:
     timeout_queue_.PushEvent([internal, id, this]() {
           internal->Reset();
           InternalClosed(internal, id);
+          Log("socket closed from time wait");
           return false;
         }, std::chrono::seconds(5));
   }
@@ -182,14 +184,14 @@ public:
           FindInternal(host_ip, host_port, peer_ip, peer_port);
 
     if (found) {
-      std::cout << "Internal found" << std::endl;
+      Log("Internal found");
       internal->RecvPacket(std::move(packet));
       
       std::lock_guard internal_guard(*internal);
       while (internal->IsAnyPacketForSending(internal_guard))
         SendPacket(internal->GetPacketForSending(internal_guard));
     } else {
-      std::cout << "Sending Rst" << std::endl;
+      Log("Sending Rst");
       auto rst_packet = MakeTcpPacket(0);
       RstHeader(packet->GetHeader(), &rst_packet->GetHeader());
       SendPacket(rst_packet);
@@ -245,7 +247,7 @@ public:
 private:
   void SendPacket(std::shared_ptr<TcpPacket> packet) {
     std::lock_guard guard(*this);
-    std::cout << "New Packet" << std::endl;
+    Log("New Packet");
     packets_.push_back(std::move(packet));
   }
 

@@ -11,7 +11,6 @@ using namespace tcp_stack;
 // TODO: test resend canceling
 
 // TODO: reply of unexpected packets
-// TODO: log system
 // TODO: network system
 
 // TODO: overlap already received segement
@@ -45,26 +44,28 @@ int main() {
 
   for (int i=0; i<40; ++i) {  
     auto packets = client.GetPacketsForSending();
-    std::cout << packets.size() << std::endl;
+    Log(packets.size());
     for (auto &packet : packets) {
-      std::cout << packet->GetHeader() << std::endl;
+      Log(packet->GetHeader());
       server.ReceivePacket(packet);
     }
 
     packets = server.GetPacketsForSending();
-    std::cout << packets.size() << std::endl;
+    Log(packets.size());
     for (auto &packet : packets) {
-      std::cout << packet->GetHeader() << std::endl;
+      Log(packet->GetHeader());
       client.ReceivePacket(packet);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  std::cout << "P" << std::endl;
+  Log("Network ended");
 
   th.join();
-  std::clog << "Main ended" << std::endl;
+  Log("Main ended");
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(10000));
 
   return 0;
 }

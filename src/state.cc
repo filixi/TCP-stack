@@ -25,10 +25,7 @@ inline uint32_t RandomSynNumber() {
   thread_local static std::mt19937 e(std::random_device{}());
   thread_local static std::uniform_int_distribution<uint32_t> d(10, 10000);
 
-  auto seq = d(e);
-  std::cout << seq << std::endl;
-
-  return seq;
+  return d(e);
 }
 
 } // anonymous namespace

@@ -9,6 +9,7 @@
 #include <mutex>
 #include <tuple>
 
+#include "safe-log.h"
 #include "state.h"
 #include "tcp-buffer.h"
 
@@ -142,7 +143,7 @@ public:
         peer_ip_(packet->GetHeader().SourceAddress()),
         peer_port_(packet->GetHeader().SourcePort()),
         manager_(manager) {
-    std::cout << "SocketInternal from packet" << std::endl;
+    Log("SocketInternal from packet");
     RecvPacket(std::move(packet));
   }
 
@@ -152,7 +153,7 @@ public:
   SocketInternal(const SocketInternal &) = delete;
 
   ~SocketInternal() {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
   }
 
   SocketInternal &operator=(const SocketInternal &) = delete;
@@ -160,11 +161,11 @@ public:
   // API for SocketManager
   void RecvPacket(std::shared_ptr<TcpPacket> packet) {
     if (CalculateChecksum(*packet) != 0) {
-      std::cout << "Invalide Checksum" << std::endl;
+      Log("Invalide Checksum");
       state_.InvalideCheckSum()(this);
     } else {
       std::lock_guard guard(*this);
-      std::cout << "RecvPacket" << std::endl;
+      Log("RecvPacket");
       current_packet_ = packet;
       state_(packet->GetHeader())(this);
     }
@@ -294,7 +295,7 @@ private:
     auto packet = MakeTcpPacket(0);
     AckHeader(seq, ack, window, &packet->GetHeader());
 
-    std::cout << "Ack" << packet->GetHeader().TcpLength() << std::endl;
+    Log("Ack", packet->GetHeader().TcpLength());
     SendPacket(std::move(packet));
   }
 
@@ -321,12 +322,12 @@ private:
   }
 
   void Accept() override {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
     auto packet = current_packet_.lock();
     if (packet->GetHeader().TcpLength() > 0) {
       
       recv_buffer_.insert(recv_buffer_.end(), packet->begin(), packet->end());
-      std::cout << "With Content " << std::endl;
+      Log("With Content");
       if (bytes_demand_.load() != 0 &&
           recv_buffer_.size() >= bytes_demand_.load())
         wait_until_readable_.notify_all();
@@ -334,7 +335,7 @@ private:
   }
 
   void Discard() override {
-    std::cout << __func__ << std::endl;
+    Log(__func__);
   }
 
   void SeqOutofRange(uint16_t window) override {

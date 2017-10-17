@@ -70,7 +70,7 @@ void SocketInternal::Listen() {
 }
 
 void SocketInternal::NewConnection() {
-  std::cout << "New Connection" << std::endl;
+  Log("New Connection");
   manager_->InternalNewConnection(this, current_packet_.lock());
 }
 
