@@ -6,7 +6,6 @@
 
 using namespace tcp_stack;
 
-// TODO: test checksum failure
 // TODO: test resend
 // TODO: test resend canceling
 

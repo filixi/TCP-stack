@@ -188,7 +188,7 @@ public:
       const std::lock_guard<SocketInternal> &) {
     // TODO: rewrite sending buffer
     if (send_buffer_.Empty())
-      return std::make_pair(std::shared_ptr<TcpPacket>(), ResendPrecdicate());
+      return std::make_pair(std::shared_ptr<TcpPacket>(), ResendPredicate());
     
     auto packet = send_buffer_.GetAsTcpPacket(0, state_.Window());
     
@@ -197,7 +197,7 @@ public:
     SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
     
     TcpHeaderH2N(packet->GetHeader());
-    return std::make_pair(packet, ResendPrecdicate(weak_from_this()));
+    return std::make_pair(packet, ResendPredicate(weak_from_this()));
   }
 
   void Reset() {
@@ -362,11 +362,11 @@ private:
     return SocketIdentifier(host_ip_, host_port_, peer_ip_, peer_port_);
   }
 
-  class ResendPrecdicate {
+  class ResendPredicate {
   public:
-    ResendPrecdicate() = default;
+    ResendPredicate() = default;
 
-    ResendPrecdicate(std::weak_ptr<SocketInternal> &&internal)
+    ResendPredicate(std::weak_ptr<SocketInternal> &&internal)
         : internal_(std::move(internal)) {}
 
     bool operator()(std::shared_ptr<TcpPacket> &packet) {
@@ -391,11 +391,6 @@ private:
   private:
     std::weak_ptr<SocketInternal> internal_;
   };
-
-  ResendPrecdicate GetResendPredicate() {
-    return ResendPrecdicate(weak_from_this());
-  }
-
 
   uint32_t host_ip_ = 0;
   uint16_t host_port_ = 0;

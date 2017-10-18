@@ -48,7 +48,7 @@ void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
   TcpHeaderH2N(packet->GetHeader());
 
   manager_->InternalSendPacketWithResend(
-      std::move(packet), GetResendPredicate());
+      std::move(packet), ResendPredicate(weak_from_this()));
 }
 
 void SocketInternal::Listen() {

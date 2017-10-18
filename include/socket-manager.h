@@ -230,7 +230,6 @@ public:
 
   std::vector<std::shared_ptr<TcpPacket>> GetPacketsForSending() {
     decltype(sockets_wait_for_sending_) sockets;
-    
     {
       std::lock_guard guard(*this);
       sockets.swap(sockets_wait_for_sending_);
@@ -245,7 +244,11 @@ public:
     }
 
     std::vector<std::shared_ptr<TcpPacket>> packets;
-    packets.swap(packets_);
+    {
+      std::lock_guard (*this);
+      packets.swap(packets_);
+    }
+
     for (auto &packet : packets) {
       packet->GetHeader().Checksum() = 0;
       packet->GetHeader().Checksum() = CalculateChecksum(*packet);
