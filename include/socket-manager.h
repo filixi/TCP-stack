@@ -34,7 +34,7 @@ public:
     constexpr auto resent_timeout = std::chrono::seconds(5);
     SendPacket(packet);
     timeout_queue_.PushEvent(
-        [packet = std::move(packet), pred = std::move(pred), this]() {
+        [packet = std::move(packet), pred = std::move(pred), this]() mutable {
           const bool is_valid = pred(packet);
           Log("Time out", is_valid);
           if (is_valid)
@@ -193,8 +193,10 @@ public:
       internal->RecvPacket(std::move(packet), check_sum_validate);
       
       std::lock_guard internal_guard(*internal);
-      while (internal->IsAnyPacketForSending(internal_guard))
-        SendPacket(internal->GetPacketForSending(internal_guard));
+      while (internal->IsAnyPacketForSending(internal_guard)) {
+        auto [packet, pred] = internal->GetPacketForSending(internal_guard);
+        InternalSendPacketWithResend(std::move(packet), pred);
+      }
     } else if (check_sum_validate) {
       Log("Sending Rst");
       auto rst_packet = MakeTcpPacket(0);
@@ -227,21 +229,23 @@ public:
   }
 
   std::vector<std::shared_ptr<TcpPacket>> GetPacketsForSending() {
-    // lock TcpManager first
-    std::vector<std::shared_ptr<TcpPacket>> packets;
+    decltype(sockets_wait_for_sending_) sockets;
+    
     {
-      for (auto &internal : sockets_wait_for_sending_) {
-        std::lock_guard guard1(*internal);
-        std::lock_guard guard2(*this);
-        while (internal->IsAnyPacketForSending(guard1)) {
-          auto packet = internal->GetPacketForSending(guard1);
-          packets_.push_back(std::move(packet));
-        }
-      }
-      sockets_wait_for_sending_.clear();
-      packets.swap(packets_);
+      std::lock_guard guard(*this);
+      sockets.swap(sockets_wait_for_sending_);
     }
 
+    for (auto &internal : sockets) {
+      std::lock_guard guard(*internal);
+      while (internal->IsAnyPacketForSending(guard)) {
+        auto [packet, pred] = internal->GetPacketForSending(guard);
+        InternalSendPacketWithResend(std::move(packet), pred);
+      }
+    }
+
+    std::vector<std::shared_ptr<TcpPacket>> packets;
+    packets.swap(packets_);
     for (auto &packet : packets) {
       packet->GetHeader().Checksum() = 0;
       packet->GetHeader().Checksum() = CalculateChecksum(*packet);

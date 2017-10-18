@@ -184,11 +184,11 @@ public:
     return !send_buffer_.Empty();
   }
 
-  std::shared_ptr<TcpPacket> GetPacketForSending(
+  auto GetPacketForSending(
       const std::lock_guard<SocketInternal> &) {
     // TODO: rewrite sending buffer
     if (send_buffer_.Empty())
-      return {};
+      return std::make_pair(std::shared_ptr<TcpPacket>(), ResendPrecdicate());
     
     auto packet = send_buffer_.GetAsTcpPacket(0, state_.Window());
     
@@ -197,7 +197,7 @@ public:
     SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
     
     TcpHeaderH2N(packet->GetHeader());
-    return packet;
+    return std::make_pair(packet, ResendPrecdicate(weak_from_this()));
   }
 
   void Reset() {
@@ -361,6 +361,41 @@ private:
   SocketIdentifier GetIdentifier() const {
     return SocketIdentifier(host_ip_, host_port_, peer_ip_, peer_port_);
   }
+
+  class ResendPrecdicate {
+  public:
+    ResendPrecdicate() = default;
+
+    ResendPrecdicate(std::weak_ptr<SocketInternal> &&internal)
+        : internal_(std::move(internal)) {}
+
+    bool operator()(std::shared_ptr<TcpPacket> &packet) {
+      auto shared_self = internal_.lock();
+      if (!shared_self)
+        return false;
+      
+      std::lock_guard guard(*shared_self);
+      packet->GetHeader().AcknowledgementNumber() =
+          htonl(shared_self->state_.GetControlBlock().rcv_nxt);
+      if (shared_self->state_.GetState() == State::kClosed) {
+        return false;
+      } else if (packet->GetHeader().Syn() || packet->GetHeader().Fin()) {
+        return shared_self->state_.GetControlBlock().snd_una <
+                  packet->GetHeader().SequenceNumber() + 1;
+      } else {
+        return shared_self->state_.GetControlBlock().snd_una <
+                  packet->GetHeader().SequenceNumber();
+      }
+    }
+
+  private:
+    std::weak_ptr<SocketInternal> internal_;
+  };
+
+  ResendPrecdicate GetResendPredicate() {
+    return ResendPrecdicate(weak_from_this());
+  }
+
 
   uint32_t host_ip_ = 0;
   uint16_t host_port_ = 0;

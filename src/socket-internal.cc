@@ -47,25 +47,8 @@ void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
 
   TcpHeaderH2N(packet->GetHeader());
 
-  auto predicate = [internal = this->weak_from_this()](auto &packet) {
-        auto shared_self = internal.lock();
-        if (!shared_self)
-          return false;
-        
-        std::lock_guard guard(*shared_self);
-        packet->GetHeader().AcknowledgementNumber() =
-            htonl(shared_self->state_.GetControlBlock().rcv_nxt);
-        if (shared_self->state_.GetState() == State::kClosed) {
-          return false;
-        } else if (packet->GetHeader().Syn() || packet->GetHeader().Fin()) {
-          return shared_self->state_.GetControlBlock().snd_una <
-                   packet->GetHeader().SequenceNumber() + 1;
-        } else {
-          return shared_self->state_.GetControlBlock().snd_una <
-                   packet->GetHeader().SequenceNumber();
-        }
-      };
-  manager_->InternalSendPacketWithResend(std::move(packet), predicate);
+  manager_->InternalSendPacketWithResend(
+      std::move(packet), GetResendPredicate());
 }
 
 void SocketInternal::Listen() {

@@ -16,8 +16,6 @@ using namespace tcp_stack;
 // TODO: overlap already received segement
 // TODO: circular seq/ack number
 
-// TODO: Add resend for GetPacketForSending
-
 int main() {
   SocketManager server(1), client(2);
 
@@ -57,13 +55,10 @@ int main() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-
   Log("Network ended");
 
   th.join();
   Log("Main ended");
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(10000));
-
+  std::this_thread::sleep_for(std::chrono::seconds(10));
   return 0;
 }
