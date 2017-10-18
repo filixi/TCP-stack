@@ -144,7 +144,7 @@ public:
         peer_port_(packet->GetHeader().SourcePort()),
         manager_(manager) {
     Log("SocketInternal from packet");
-    RecvPacket(std::move(packet));
+    RecvPacket(std::move(packet), true);
   }
 
   SocketInternal(uint32_t host_ip, uint16_t host_port, SocketManager *manager)
@@ -159,8 +159,8 @@ public:
   SocketInternal &operator=(const SocketInternal &) = delete;
 
   // API for SocketManager
-  void RecvPacket(std::shared_ptr<TcpPacket> packet) {
-    if (CalculateChecksum(*packet) != 0) {
+  void RecvPacket(std::shared_ptr<TcpPacket> packet, bool check_sum_validate) {
+    if (!check_sum_validate) {
       Log("Invalide Checksum");
       state_.InvalideCheckSum()(this);
     } else {
@@ -196,6 +196,7 @@ public:
     SetSource(host_ip_, host_port_, &packet->GetHeader());
     SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
     
+    TcpHeaderH2N(packet->GetHeader());
     return packet;
   }
 

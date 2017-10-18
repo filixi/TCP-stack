@@ -36,12 +36,16 @@ void SocketInternal::SendPacket(std::shared_ptr<TcpPacket> packet) {
   SetSource(host_ip_, host_port_, &packet->GetHeader());
   SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
 
+  TcpHeaderH2N(packet->GetHeader());
+
   manager_->InternalSendPacket(std::move(packet));
 }
 
 void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
   SetSource(host_ip_, host_port_, &packet->GetHeader());
   SetDestination(peer_ip_, peer_port_, &packet->GetHeader());
+
+  TcpHeaderH2N(packet->GetHeader());
 
   auto predicate = [internal = this->weak_from_this()](auto &packet) {
         auto shared_self = internal.lock();
@@ -50,7 +54,7 @@ void SocketInternal::SendPacketWithResend(std::shared_ptr<TcpPacket> packet) {
         
         std::lock_guard guard(*shared_self);
         packet->GetHeader().AcknowledgementNumber() =
-            shared_self->state_.GetControlBlock().rcv_nxt;
+            htonl(shared_self->state_.GetControlBlock().rcv_nxt);
         if (shared_self->state_.GetState() == State::kClosed) {
           return false;
         } else if (packet->GetHeader().Syn() || packet->GetHeader().Fin()) {

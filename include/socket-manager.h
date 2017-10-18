@@ -172,6 +172,11 @@ public:
   }
 
   void ReceivePacket(std::shared_ptr<TcpPacket> packet) {
+    const bool check_sum_validate = CalculateChecksum(*packet) == 0;
+
+    TcpHeaderN2H(packet->GetHeader());
+    Log(packet->GetHeader());
+
     const auto host_ip = ip_;
     const auto host_port = packet->GetHeader().DestinationPort();
 
@@ -185,15 +190,16 @@ public:
 
     if (found) {
       Log("Internal found");
-      internal->RecvPacket(std::move(packet));
+      internal->RecvPacket(std::move(packet), check_sum_validate);
       
       std::lock_guard internal_guard(*internal);
       while (internal->IsAnyPacketForSending(internal_guard))
         SendPacket(internal->GetPacketForSending(internal_guard));
-    } else {
+    } else if (check_sum_validate) {
       Log("Sending Rst");
       auto rst_packet = MakeTcpPacket(0);
       RstHeader(packet->GetHeader(), &rst_packet->GetHeader());
+      TcpHeaderH2N(rst_packet->GetHeader());
       SendPacket(rst_packet);
     }
   }

@@ -1,6 +1,7 @@
 #ifndef _TCP_STATE_MACHINE_TCP_HEADER_H_
 #define _TCP_STATE_MACHINE_TCP_HEADER_H_
 
+#include <arpa/inet.h>
 #include <cassert>
 
 #include <memory>
@@ -181,13 +182,43 @@ public:
         static_cast<const TcpHeader *>(this)->UrgentPointer());
   }
   const uint16_t &UrgentPointer() const {
-    return field_.At<uint16_t>(142);
+    return field_.At<uint16_t>(144);
   }
 
 private:
   Field<3> prefixed_field_;
   Field<5> field_;
 };
+
+inline void TcpHeaderH2N(TcpHeader &header) {
+  header.SourceAddress() = htonl(header.SourceAddress());
+  header.DestinationAddress() = htonl(header.DestinationAddress());
+  
+  header.TcpLength() = htons(header.TcpLength());
+  header.SourcePort() = htons(header.SourcePort());
+  header.DestinationPort() = htons(header.DestinationPort());
+
+  header.SequenceNumber() = htonl(header.SequenceNumber());
+  header.AcknowledgementNumber() = htonl(header.AcknowledgementNumber());
+
+  header.Window() = htons(header.Window());
+  header.UrgentPointer() = htons(header.UrgentPointer());
+}
+
+inline void TcpHeaderN2H(TcpHeader &header) {
+  header.SourceAddress() = ntohl(header.SourceAddress());
+  header.DestinationAddress() = ntohl(header.DestinationAddress());
+  
+  header.TcpLength() = ntohs(header.TcpLength());
+  header.SourcePort() = ntohs(header.SourcePort());
+  header.DestinationPort() = ntohs(header.DestinationPort());
+
+  header.SequenceNumber() = ntohl(header.SequenceNumber());
+  header.AcknowledgementNumber() = ntohl(header.AcknowledgementNumber());
+
+  header.Window() = ntohs(header.Window());
+  header.UrgentPointer() = ntohs(header.UrgentPointer());
+}
 
 class TcpPacket {
 public:

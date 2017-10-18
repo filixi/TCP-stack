@@ -16,6 +16,8 @@ using namespace tcp_stack;
 // TODO: overlap already received segement
 // TODO: circular seq/ack number
 
+// TODO: Add resend for GetPacketForSending
+
 int main() {
   SocketManager server(1), client(2);
 
@@ -45,17 +47,13 @@ int main() {
   for (int i=0; i<40; ++i) {  
     auto packets = client.GetPacketsForSending();
     Log(packets.size());
-    for (auto &packet : packets) {
-      Log(packet->GetHeader());
+    for (auto &packet : packets)
       server.ReceivePacket(packet);
-    }
 
     packets = server.GetPacketsForSending();
     Log(packets.size());
-    for (auto &packet : packets) {
-      Log(packet->GetHeader());
+    for (auto &packet : packets)
       client.ReceivePacket(packet);
-    }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
