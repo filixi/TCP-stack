@@ -1,5 +1,11 @@
 #include "timeout-queue.h"
 
+template <class Fn>
+struct AtExit : Fn {
+  AtExit(Fn &&fn) noexcept : Fn(std::move(fn)) {}
+  ~AtExit() noexcept { Fn::operator()(); }
+};
+
 void TimeoutQueue::Worker() {
   while (!quit_.load()) {
     UniqueLockType<MutexType> lock(mtx_);
@@ -15,6 +21,7 @@ void TimeoutQueue::Worker() {
       break;
     
     ++events_out_of_queue_;
+    AtExit at_exit([this]() {--events_out_of_queue_;});
     auto node = time_out_queue_.extract(time_out_queue_.begin());
     auto [next_timeout, next_event] = std::tie(node.key(), node.mapped());
     
@@ -30,8 +37,6 @@ void TimeoutQueue::Worker() {
         time_out_queue_.insert(std::move(node));
         new_event_.notify_one();
       }
-
-      --events_out_of_queue_;
     } else {
       time_out_queue_.insert(std::move(node));
     }

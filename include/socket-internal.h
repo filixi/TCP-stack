@@ -186,7 +186,6 @@ public:
 
   auto GetPacketForSending(
       const std::lock_guard<SocketInternal> &) {
-    // TODO: rewrite sending buffer
     if (send_buffer_.Empty())
       return std::make_pair(std::shared_ptr<TcpPacket>(), ResendPredicate());
     
