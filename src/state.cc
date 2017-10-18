@@ -241,11 +241,21 @@ FinWait1::TriggerType FinWait1::operator()(
              header.AcknowledgementNumber() <= b.snd_nxt &&
              header.SequenceNumber() == b.rcv_nxt) {
     b.rcv_wnd = header.Window();
-    return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
-            SocketInternalInterface *tcp) {
-          tcp->Accept();
-          tcp->SendAck(seq, ack, wnd);
-        }, &b.state.emplace<Closing>()};
+    if (header.AcknowledgementNumber() == b.snd_nxt) {
+      // ACK from the other side is combined with the FIN header
+      return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
+              SocketInternalInterface *tcp) {
+            tcp->Accept();
+            tcp->SendAck(seq, ack, wnd);
+            tcp->TimeWait();
+          }, &b.state.emplace<TimeWait>()};
+    } else {
+      return {[seq = b.snd_nxt, ack = ++b.rcv_nxt, wnd = b.snd_wnd](
+              SocketInternalInterface *tcp) {
+            tcp->Accept();
+            tcp->SendAck(seq, ack, wnd);
+          }, &b.state.emplace<Closing>()};
+    }
   }
 
   return {[](SocketInternalInterface *tcp) { tcp->Discard(); }, this};

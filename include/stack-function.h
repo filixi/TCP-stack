@@ -5,6 +5,8 @@
 #include <utility>
 #include <vector>
 
+// TODO: Add object pool
+
 template <class Ret, class... Args>
 class CallableBase {
 public:

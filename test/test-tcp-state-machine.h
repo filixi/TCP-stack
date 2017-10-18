@@ -179,33 +179,33 @@ auto TestConnection(State state = State::kClosed) {
 
     // tcp1 : ESTAB -> FINWAIT-1 ...
     // tcp2 : FINWAIT1 -> CLOSING ...
-    [=]() mutable {
-      tcp1(Event::kClose, nullptr)(&internal1);
-      assert(internal1[-1] == "SendFin"s);
-      assert(tcp1.GetState() == State::kFinWait1);
+    // [=]() mutable {
+    //   tcp1(Event::kClose, nullptr)(&internal1);
+    //   assert(internal1[-1] == "SendFin"s);
+    //   assert(tcp1.GetState() == State::kFinWait1);
 
-      const auto tcp2_fin_header = internal2.GetHeader();
+    //   const auto tcp2_fin_header = internal2.GetHeader();
 
-      tcp2(internal1.GetHeader())(&internal2); // ACK header before the FIN boom!
-      assert(internal2[-1] == "SendAck"s);
-      assert(internal2[-2] == "Accept"s);
-      assert(tcp2.GetState() == State::kClosing);
+    //   tcp2(internal1.GetHeader())(&internal2); // ACK header, Seq error
+    //   assert(internal2[-1] == "SendAck"s);
+    //   assert(internal2[-2] == "Accept"s);
+    //   assert(tcp2.GetState() == State::kClosing);
 
-      tcp1(internal2.GetHeader())(&internal1);
-      assert(internal1[-1] == "Accept"s);
-      assert(tcp1.GetState() == State::kFinWait2);
+    //   tcp1(internal2.GetHeader())(&internal1);
+    //   assert(internal1[-1] == "Accept"s);
+    //   assert(tcp1.GetState() == State::kFinWait2);
 
-      tcp1(tcp2_fin_header)(&internal1);
-      assert(internal1[-1] == "TimeWait"s);
-      assert(internal1[-2] == "SendAck"s);
-      assert(internal1[-3] == "Accept"s);
-      assert(tcp1.GetState() == State::kTimeWait);
+    //   tcp1(tcp2_fin_header)(&internal1);
+    //   assert(internal1[-1] == "TimeWait"s);
+    //   assert(internal1[-2] == "SendAck"s);
+    //   assert(internal1[-3] == "Accept"s);
+    //   assert(tcp1.GetState() == State::kTimeWait);
 
-      tcp2(internal1.GetHeader())(&internal2);
-      assert(internal2[-1] == "TimeWait"s);
-      assert(internal2[-2] == "Accept"s);
-      assert(tcp2.GetState() == State::kTimeWait);
-    }; // (); // not tested
+    //   tcp2(internal1.GetHeader())(&internal2);
+    //   assert(internal2[-1] == "TimeWait"s);
+    //   assert(internal2[-2] == "Accept"s);
+    //   assert(tcp2.GetState() == State::kTimeWait);
+    // }; // This part can not be tested, due to the ACK header is ahead of FIN
 
     tcp1(internal2.GetHeader())(&internal1);
     assert(internal1[-1] == "SendAck"s);
