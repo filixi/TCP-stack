@@ -18,9 +18,8 @@
 namespace tcp_stack {
 class SocketManager {
 public:
-  SocketManager(uint32_t ip) {
+  SocketManager(uint32_t ip) : ip_(ip) {
     timeout_queue_.AsyncRun();
-    ip_ = ip;
   }
 
   ~SocketManager() {

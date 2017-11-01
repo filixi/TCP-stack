@@ -5,7 +5,7 @@ LIB = -lpthread
 
 INCLUDE = -I include/
 
-OBJS = state.o timeout-queue.o socket-internal.o tcp-header.o
+OBJS = state.o timeout-queue.o socket-internal.o tcp-header.o network.o
 
 main : $(OBJS)
 	$(CC) $(FLAG) $(OBJS) main.cc $(INCLUDE) $(LIB)
