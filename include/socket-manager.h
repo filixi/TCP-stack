@@ -16,10 +16,18 @@
 #include "timeout-queue.h"
 
 namespace tcp_stack {
+
+class NetworkService;
+
 class SocketManager {
 public:
-  SocketManager(uint32_t ip) : ip_(ip) {
+  SocketManager(uint32_t ip, NetworkService *network_service)
+      : ip_(ip), network_service_(network_service) {
     timeout_queue_.AsyncRun();
+    timeout_queue_.PushEvent([this]() {
+        SendPacketsForSending();
+        return true;
+      }, std::chrono::milliseconds(200));
   }
 
   ~SocketManager() {
@@ -190,12 +198,6 @@ public:
     if (found) {
       Log("Internal found");
       internal->RecvPacket(std::move(packet), check_sum_validate);
-      
-      std::lock_guard internal_guard(*internal);
-      while (internal->IsAnyPacketForSending(internal_guard)) {
-        auto [packet, pred] = internal->GetPacketForSending(internal_guard);
-        InternalSendPacketWithResend(std::move(packet), pred);
-      }
     } else if (check_sum_validate) {
       Log("Sending Rst");
       auto rst_packet = MakeTcpPacket(0);
@@ -227,41 +229,8 @@ public:
     mtx_.unlock();
   }
 
-  std::vector<std::shared_ptr<TcpPacket>> GetPacketsForSending() {
-    decltype(sockets_wait_for_sending_) sockets;
-    {
-      std::lock_guard guard(*this);
-      sockets.swap(sockets_wait_for_sending_);
-    }
-
-    for (auto &internal : sockets) {
-      std::lock_guard guard(*internal);
-      while (internal->IsAnyPacketForSending(guard)) {
-        auto [packet, pred] = internal->GetPacketForSending(guard);
-        InternalSendPacketWithResend(std::move(packet), pred);
-      }
-    }
-
-    std::vector<std::shared_ptr<TcpPacket>> packets;
-    {
-      std::lock_guard (*this);
-      packets.swap(packets_);
-    }
-
-    for (auto &packet : packets) {
-      packet->GetHeader().Checksum() = 0;
-      packet->GetHeader().Checksum() = CalculateChecksum(*packet);
-    }
-
-    return packets;
-  }
-
 private:
-  void SendPacket(std::shared_ptr<TcpPacket> packet) {
-    std::lock_guard guard(*this);
-    Log("New Packet");
-    packets_.push_back(std::move(packet));
-  }
+  void SendPacket(std::shared_ptr<TcpPacket> packet);
 
   std::pair<std::shared_ptr<SocketInternal>, bool> FindInternal(
       uint32_t host_ip, uint16_t host_port, uint32_t peer_ip,
@@ -273,6 +242,25 @@ private:
       return {{}, false};
 
     return {socket->second, true};
+  }
+
+  void SendPacketsForSending() {
+    decltype(sockets_wait_for_sending_) sockets;
+    {
+      std::lock_guard guard(*this);
+      sockets.swap(sockets_wait_for_sending_);
+    }
+
+    for (auto &internal : sockets) {
+      std::lock_guard guard(*internal);
+      while (internal->IsAnyPacketForSending(guard)) {
+        auto [packet, pred] = internal->GetPacketForSending(guard);
+
+        packet->GetHeader().Checksum() = 0;
+        packet->GetHeader().Checksum() = CalculateChecksum(*packet);
+        InternalSendPacketWithResend(std::move(packet), pred);
+      }
+    }
   }
 
   uint32_t ip_ = 0;
@@ -293,11 +281,12 @@ private:
   
   std::unordered_set<std::shared_ptr<SocketInternal>> sockets_wait_for_sending_;
 
-  std::vector<std::shared_ptr<TcpPacket>> packets_;
-
-  TimeoutQueue timeout_queue_;
+  NetworkService * const network_service_;
 
   std::mutex mtx_;
+
+  // Must be the first to be destroyed during destruction 
+  TimeoutQueue timeout_queue_;
 };
 
 } // namespace tcp_stack

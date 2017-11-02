@@ -14,7 +14,6 @@
 #include "tcp-buffer.h"
 
 namespace tcp_stack {
-
 inline void SynHeader(uint32_t seq, uint16_t window, TcpHeader *header) {
   header->SetSyn(true);
 
@@ -376,14 +375,13 @@ private:
       std::lock_guard guard(*shared_self);
       packet->GetHeader().AcknowledgementNumber() =
           htonl(shared_self->state_.GetControlBlock().rcv_nxt);
+      const auto seq = ntohl(packet->GetHeader().SequenceNumber());
       if (shared_self->state_.GetState() == State::kClosed) {
         return false;
       } else if (packet->GetHeader().Syn() || packet->GetHeader().Fin()) {
-        return shared_self->state_.GetControlBlock().snd_una <
-                  packet->GetHeader().SequenceNumber() + 1;
+        return shared_self->state_.GetControlBlock().snd_una < seq + 1;
       } else {
-        return shared_self->state_.GetControlBlock().snd_una <
-                  packet->GetHeader().SequenceNumber();
+        return shared_self->state_.GetControlBlock().snd_una < seq;
       }
     }
 

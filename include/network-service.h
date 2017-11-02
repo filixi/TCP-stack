@@ -13,6 +13,7 @@
 #include <thread>
 
 #include "socket-manager.h"
+#include "safe-log.h"
 
 namespace tcp_stack {
 class NetworkService {
@@ -22,7 +23,8 @@ class NetworkService {
       : host_addr_{AF_INET, htons(host_port)},
         host_port_(host_port),
         peer_addr_{AF_INET, htons(peer_port)},
-        peer_port_(peer_port) {
+        peer_port_(peer_port),
+        socket_manager_(ntohl(inet_addr(host_address.c_str())), this) {
     if (inet_pton(AF_INET, host_address.c_str(), &host_addr_.sin_addr) != 1)
       throw std::runtime_error("inet_pton failed with: " + host_address);
     if (inet_pton(AF_INET, peer_address.c_str(), &peer_addr_.sin_addr) != 1)
@@ -56,6 +58,12 @@ class NetworkService {
     return socket_manager_.NewSocket();
   }
 
+  void SendPacket(std::shared_ptr<TcpPacket> packet) {
+    auto [buff, size] = packet->GetBuffer();
+    sendto(host_socket_, buff, size, 0,
+        (sockaddr *)&peer_addr_, sizeof(sockaddr_in));
+  }
+
   void Terminate() {
     terminate_flag_.store(true);
     if (thread_.joinable())
@@ -76,6 +84,8 @@ class NetworkService {
   uint16_t host_port_;
   sockaddr_in peer_addr_;
   uint16_t peer_port_;
+
+  int host_socket_;
   
   SocketManager socket_manager_;
 };

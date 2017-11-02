@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cstring>
 
-#include "socket-manager.h"
+#include "network-service.h"
 
 using namespace tcp_stack;
 
@@ -16,14 +16,20 @@ using namespace tcp_stack;
 // TODO: circular seq/ack number
 
 int main() {
-  SocketManager server(1), client(2);
-
+  auto server = NetworkService::AsyncRun(
+      "127.0.0.1", 15500, "127.0.0.1", 15501);
+  auto client = NetworkService::AsyncRun(
+      "127.0.0.1", 15501, "127.0.0.1", 15500);
+  
+  Log("Service up");
   std::thread th([&]() {
-        auto server_socket = server.NewSocket();
-        auto client_socket = client.NewSocket();
+        auto server_socket = server->NewSocket();
+        auto client_socket = client->NewSocket();
 
         server_socket.Listen(10);
-        client_socket.Connect("0.0.0.1", 10);
+
+        Log("Connecting");
+        client_socket.Connect("127.0.0.1", 10);
 
         client_socket.Send("Abcdefghijklmno", 15);
         client_socket.Send("pqrstuvwxyz", 11);
@@ -39,23 +45,7 @@ int main() {
         // server_connection.Close();
         // client_socket.Close();
       });
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-
-  for (int i=0; i<40; ++i) {  
-    auto packets = client.GetPacketsForSending();
-    Log(packets.size());
-    for (auto &packet : packets)
-      server.ReceivePacket(packet);
-
-    packets = server.GetPacketsForSending();
-    Log(packets.size());
-    for (auto &packet : packets)
-      client.ReceivePacket(packet);
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  Log("Network ended");
-
+  
   th.join();
   Log("Main ended");
   std::this_thread::sleep_for(std::chrono::seconds(10));

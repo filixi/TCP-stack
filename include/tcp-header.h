@@ -6,8 +6,8 @@
 
 #include <memory>
 #include <ostream>
-
-#include <iostream>
+#include <utility>
+#include <ostream>
 
 namespace tcp_stack {
 template <size_t size>
@@ -262,6 +262,10 @@ public:
     return static_cast<uint16_t>(~checksum);
   }
 
+  auto GetBuffer() {
+    return std::make_pair(buff_.get(), size_);
+  }
+
 protected:
   TcpPacket(size_t size)
       : size_(sizeof(TcpHeader) + size), buff_(new char[size_]) {
@@ -272,6 +276,11 @@ protected:
       : size_(sizeof(TcpHeader) + size), buff_(new char[size_]) {
     new(buff_.get()) TcpHeader;
     std::copy(buff, buff+size, begin());
+  }
+
+  TcpPacket(const char *first, const char *last)
+      : size_(last-first), buff_(new char[size_]) {
+    std::copy(first, last, buff_.get());
   }
 
 private:
@@ -291,12 +300,18 @@ inline std::shared_ptr<TcpPacket> MakeTcpPacket(size_t size) {
   return std::make_shared<EnableMake>(size);
 }
 
-inline std::shared_ptr<TcpPacket> MakeTcpPacket(
-    const char *buff, size_t size) {
+inline std::shared_ptr<TcpPacket> MakeTcpPacket(const char *buff, size_t size) {
   struct EnableMake : TcpPacket {
     EnableMake(const char *buff, size_t size) : TcpPacket(buff, size) {}
   };
   return std::make_shared<EnableMake>(buff, size);
+}
+
+inline std::shared_ptr<TcpPacket> MakeNetPacket(const char *buff, size_t size) {
+  struct EnableMake : TcpPacket {
+    EnableMake(const char *first, const char *last) : TcpPacket(first, last) {}
+  };
+  return std::make_shared<EnableMake>(buff, buff + size);
 }
 
 } // namespace tcp_stack
