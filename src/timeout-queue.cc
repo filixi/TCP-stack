@@ -3,6 +3,15 @@
 template <class Fn>
 class AtExit : Fn {
 public:
+  template <class Fn>
+  friend AtExit<Fn> MakeAtExit(Fn);
+
+  ~AtExit() noexcept {
+    if (is_valid_)
+      Fn::operator()();
+  }
+
+private:
   explicit AtExit(Fn &&fn) noexcept : Fn(std::move(fn)) {}
 
   AtExit(const AtExit &) = delete;
@@ -11,17 +20,11 @@ public:
   AtExit &operator=(const AtExit &) = delete;
   AtExit &operator=(AtExit &&) = delete;
 
-  ~AtExit() noexcept {
-    if (is_valid_)
-      Fn::operator()();
-  }
-
-private:
   bool is_valid_ = true;
 };
 
 template <class Fn>
-inline auto MakeAtExit(Fn fn) {
+inline AtExit<Fn> MakeAtExit(Fn fn) {
   return AtExit<Fn>(std::move(fn));
 }
 
@@ -40,7 +43,7 @@ void TimeoutQueue::Worker() {
       break;
     
     ++events_out_of_queue_;
-    auto at_exit = MakeAtExit([this]() {--events_out_of_queue_;});
+    const auto &at_exit = MakeAtExit([this]() {--events_out_of_queue_;});
     auto node = time_out_queue_.extract(time_out_queue_.begin());
     auto [next_timeout, next_event] = std::tie(node.key(), node.mapped());
     
