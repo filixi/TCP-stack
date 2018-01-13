@@ -30,6 +30,11 @@ public:
 
   TimeoutQueue() = default;
 
+  explicit TimeoutQueue(size_t n) {
+    for (size_t i=0; i<n; ++i)
+      AsyncRun();
+  }
+
   ~TimeoutQueue() {
     Quit();
     for (auto &thread : threads_)
@@ -45,10 +50,9 @@ public:
 
   template <class Fn, class Rep, class Period>
   void PushEvent(Fn fn, std::chrono::duration<Rep, Period> timeout_duration) {
-    std::lock_guard guard(mtx_);
+    std::lock_guard<MutexType> guard(mtx_);
     time_out_queue_.emplace(Clock::now() + timeout_duration,
-                            Event{.function = std::move(fn),
-                                  .period = timeout_duration});
+                            Event{std::move(fn), timeout_duration});
     new_event_.notify_one();
   }
 
